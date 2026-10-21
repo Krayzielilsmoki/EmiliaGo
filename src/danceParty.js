@@ -547,14 +547,16 @@ export class DancePartyGame {
       ctx.restore();
     }
 
-    // 8. Particles & Floating Texts
-    for (const p of this.particles) {
+    // 8. Particles & Floating Texts (batched context save/restore!)
+    if (this.particles.length > 0) {
       ctx.save();
-      ctx.globalAlpha = Math.max(0, p.life / p.maxLife);
-      ctx.fillStyle = p.color;
-      ctx.beginPath();
-      ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
-      ctx.fill();
+      for (const p of this.particles) {
+        ctx.globalAlpha = Math.max(0, p.life / p.maxLife);
+        ctx.fillStyle = p.color;
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
+        ctx.fill();
+      }
       ctx.restore();
     }
 
@@ -618,73 +620,117 @@ export class DancePartyGame {
     let headScale = 1.0;
     let crownPoint = null;
 
-    if (lms && lms[2] && lms[5] && lms[2].visibility > 0.25 && lms[5].visibility > 0.25) {
-      const lEye = lms[2];
-      const rEye = lms[5];
+    let lEye = null;
+    let rEye = null;
+
+    if (lms) {
+      // Find left eye: check landmark 2 (pupil), 1 (inner), 3 (outer)
+      for (const idx of [2, 1, 3]) {
+        if (lms[idx] && (lms[idx].visibility === undefined || lms[idx].visibility > 0.15)) {
+          lEye = lms[idx];
+          break;
+        }
+      }
+      // Find right eye: check landmark 5 (pupil), 4 (inner), 6 (outer)
+      for (const idx of [5, 4, 6]) {
+        if (lms[idx] && (lms[idx].visibility === undefined || lms[idx].visibility > 0.15)) {
+          rEye = lms[idx];
+          break;
+        }
+      }
+    }
+
+    if (lEye && rEye) {
       eyeCenter = { x: (lEye.x + rEye.x) / 2, y: (lEye.y + rEye.y) / 2 };
       eyeSpan = Math.hypot(rEye.x - lEye.x, rEye.y - lEye.y);
       headAngle = Math.atan2(rEye.y - lEye.y, rEye.x - lEye.x);
-      headScale = Math.max(0.65, Math.min(2.0, eyeSpan / 44));
+
+      // Verify eyeCenter is strictly above the nose (lms[0])!
+      if (lms && lms[0] && (lms[0].visibility === undefined || lms[0].visibility > 0.2)) {
+        const noseY = lms[0].y;
+        if (eyeCenter.y > noseY - eyeSpan * 0.22) {
+          eyeCenter.y = noseY - eyeSpan * 0.32;
+        }
+      }
 
       // Crown / top of head anchor: Perpendicularly offset upwards from eyes
-      // eyeSpan * 2.15 positions the crownPoint right on the top crown of the head/hair!
       const upX = Math.sin(headAngle);
       const upY = -Math.cos(headAngle);
       crownPoint = {
         x: eyeCenter.x + upX * (eyeSpan * 2.15),
         y: eyeCenter.y + upY * (eyeSpan * 2.15),
       };
+      headScale = Math.max(0.65, Math.min(2.0, eyeSpan / 44));
+
+    } else if (lms && lms[0] && (lms[0].visibility === undefined || lms[0].visibility > 0.2)) {
+      // If eye corners have low confidence, anchor above the nose tip
+      const span = player.shoulderSpanPx ? player.shoulderSpanPx * 0.28 : 45;
+      eyeSpan = span;
+      headAngle = 0;
+      headScale = Math.max(0.65, Math.min(2.0, eyeSpan / 44));
+      eyeCenter = { x: lms[0].x, y: lms[0].y - span * 0.38 };
+      crownPoint = { x: lms[0].x, y: lms[0].y - span * 1.8 };
+
     } else if (colliders && colliders.head && colliders.head.visibility > 0.25) {
       const h = colliders.head;
+      eyeSpan = h.r * 0.85;
+      headAngle = 0;
+      headScale = h.r / 42;
       eyeCenter = { x: h.x, y: h.y };
       crownPoint = { x: h.x, y: h.y - h.r * 0.88 }; // Perched atop crown of head
-      eyeSpan = h.r * 0.9;
-      headScale = h.r / 42;
     }
 
     if (!eyeCenter || !crownPoint) return;
 
     ctx.save();
 
-    // 1. STAR / DISCO SUNGLASSES (Right over the eyes!)
+    // 1. STAR / DISCO SUNGLASSES (Sitting directly over the eye sockets!)
     if (headItem.id === 'shades') {
       ctx.translate(eyeCenter.x, eyeCenter.y);
       ctx.rotate(headAngle);
-      ctx.scale(headScale, headScale);
 
-      const frameDist = eyeSpan * 0.52;
-      const starR = 26;
+      // Distance from center to each eye pupil (half of eyeSpan)
+      const lensDist = eyeSpan * 0.50;
+      // Proportional star radius sized to sit neatly over the eye socket
+      const starR = Math.max(16, eyeSpan * 0.40);
+      const starInnerR = starR * 0.50;
+      // Slight vertical lift so lens sits right over pupils and above nose bridge
+      const lensY = -eyeSpan * 0.05;
 
-      // Draw Star Sunglasses Frames
-      [-frameDist, frameDist].forEach((starX) => {
+      // Draw Star Sunglasses Frames directly over each eye pupil
+      [-lensDist, lensDist].forEach((starX) => {
         // Outer hot-pink star frame
         ctx.fillStyle = '#EC4899';
         ctx.strokeStyle = '#F472B6';
-        ctx.lineWidth = 3.5;
-        this._drawStarPath(ctx, starX, 0, 5, starR, starR * 0.52);
+        ctx.lineWidth = Math.max(3, starR * 0.12);
+        this._drawStarPath(ctx, starX, lensY, 5, starR, starInnerR);
         ctx.fill();
         ctx.stroke();
 
-        // Dark gradient lens inside star
+        // Dark disco tinted lens inside star
         ctx.fillStyle = '#0F172A';
-        this._drawStarPath(ctx, starX, 0, 5, starR * 0.75, starR * 0.38);
+        this._drawStarPath(ctx, starX, lensY, 5, starR * 0.74, starInnerR * 0.74);
         ctx.fill();
 
-        // White glare streak across lens
-        ctx.strokeStyle = 'rgba(255, 255, 255, 0.75)';
-        ctx.lineWidth = 2.5;
+        // White reflective glare streak across lens
+        ctx.strokeStyle = 'rgba(255, 255, 255, 0.82)';
+        ctx.lineWidth = Math.max(2, starR * 0.09);
+        ctx.lineCap = 'round';
         ctx.beginPath();
-        ctx.moveTo(starX - 8, -6);
-        ctx.lineTo(starX + 6, 8);
+        ctx.moveTo(starX - starR * 0.32, lensY - starR * 0.24);
+        ctx.lineTo(starX + starR * 0.24, lensY + starR * 0.32);
         ctx.stroke();
       });
 
-      // Sleek nose bridge connecting the frames
+      // Sleek nose bridge curving gracefully UPWARDS over the nose bridge
       ctx.strokeStyle = '#EC4899';
-      ctx.lineWidth = 4;
+      ctx.lineWidth = Math.max(3.5, eyeSpan * 0.08);
+      ctx.lineCap = 'round';
       ctx.beginPath();
-      ctx.moveTo(-frameDist + starR * 0.65, 0);
-      ctx.lineTo(frameDist - starR * 0.65, 0);
+      const bridgeStart = -lensDist + starInnerR * 0.95;
+      const bridgeEnd = lensDist - starInnerR * 0.95;
+      ctx.moveTo(bridgeStart, lensY);
+      ctx.quadraticCurveTo(0, lensY - eyeSpan * 0.15, bridgeEnd, lensY);
       ctx.stroke();
 
     // 2. ROYAL CROWN (Perched snugly on top of head)

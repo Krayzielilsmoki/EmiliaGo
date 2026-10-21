@@ -494,13 +494,15 @@ export class HatStackerGame {
       this.drawMonkey(ctx, this.monkey, sb);
     }
 
-    for (const p of this.particles) {
+    if (this.particles.length > 0) {
       ctx.save();
-      ctx.globalAlpha = Math.max(0, p.life / p.maxLife);
-      ctx.fillStyle = p.color;
-      ctx.beginPath();
-      ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
-      ctx.fill();
+      for (const p of this.particles) {
+        ctx.globalAlpha = Math.max(0, p.life / p.maxLife);
+        ctx.fillStyle = p.color;
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
+        ctx.fill();
+      }
       ctx.restore();
     }
 
@@ -1090,9 +1092,11 @@ export class HatStackerGame {
     ctx.restore();
   }
 
-  drawHatGraphic(ctx, id, x, y, scaleX = 1.0, scaleY = scaleX, angle = 0) {
-    if (typeof angle === 'undefined') {
-      angle = scaleY;
+  drawHatGraphic(ctx, id, x, y, scaleX = 1.0, scaleY = 1.0, angle = 0) {
+    if (arguments.length <= 6) {
+      // When called with 5 or 6 arguments (ctx, id, x, y, scale, [angle]):
+      // scale applies uniformly to both X and Y, and the 6th arg is angle!
+      angle = arguments.length === 6 ? scaleY : 0;
       scaleY = scaleX;
     }
 
