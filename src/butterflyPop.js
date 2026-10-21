@@ -220,7 +220,7 @@ export class ButterflyPopGame {
 
         // Shimmering fairy dust trail behind the butterfly
         t.trailTimer = (t.trailTimer || 0) + dt;
-        if (t.trailTimer >= 0.08 && this.particles.length < 35) {
+        if (t.trailTimer >= 0.10 && this.particles.length < 20) {
           t.trailTimer = 0;
           const facing = t.vx >= 0 ? 1 : -1;
           this.particles.push({
@@ -231,8 +231,8 @@ export class ButterflyPopGame {
             vy: -8 + Math.random() * 20,
             r: 3 + Math.random() * 2,
             color: t.style.topWing,
-            life: 0.65,
-            maxLife: 0.65,
+            life: 0.55,
+            maxLife: 0.55,
           });
         }
       } else if (t.kind === 'ladybug') {
@@ -523,17 +523,18 @@ export class ButterflyPopGame {
     }
 
     if (this.particles.length > 0) {
+      ctx.save();
       for (const p of this.particles) {
-        ctx.save();
-        ctx.globalAlpha = Math.max(0, p.life / p.maxLife);
+        const alpha = Math.max(0, p.life / p.maxLife);
+        ctx.globalAlpha = alpha;
         if (p.kind === 'fairydust') {
           ctx.strokeStyle = p.color;
           ctx.lineWidth = 2;
           ctx.beginPath();
-          ctx.moveTo(p.x - p.r * 1.6, p.y);
-          ctx.lineTo(p.x + p.r * 1.6, p.y);
-          ctx.moveTo(p.x, p.y - p.r * 1.6);
-          ctx.lineTo(p.x, p.y + p.r * 1.6);
+          ctx.moveTo(p.x - p.r * 1.5, p.y);
+          ctx.lineTo(p.x + p.r * 1.5, p.y);
+          ctx.moveTo(p.x, p.y - p.r * 1.5);
+          ctx.lineTo(p.x, p.y + p.r * 1.5);
           ctx.stroke();
           ctx.fillStyle = '#FFFFFF';
           ctx.beginPath();
@@ -545,20 +546,23 @@ export class ButterflyPopGame {
           ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
           ctx.fill();
         }
-        ctx.restore();
       }
+      ctx.restore();
     }
 
-    for (const ft of this.floatingTexts) {
+    if (this.floatingTexts.length > 0) {
       ctx.save();
-      ctx.globalAlpha = Math.max(0, ft.life / ft.maxLife);
       ctx.font = '900 24px system-ui, sans-serif';
       ctx.textAlign = 'center';
-      ctx.strokeStyle = '#0F172A';
+      ctx.textBaseline = 'middle';
       ctx.lineWidth = 6;
-      ctx.strokeText(ft.text, ft.x, ft.y);
-      ctx.fillStyle = ft.color;
-      ctx.fillText(ft.text, ft.x, ft.y);
+      for (const ft of this.floatingTexts) {
+        ctx.globalAlpha = Math.max(0, ft.life / ft.maxLife);
+        ctx.strokeStyle = '#0F172A';
+        ctx.strokeText(ft.text, ft.x, ft.y);
+        ctx.fillStyle = ft.color;
+        ctx.fillText(ft.text, ft.x, ft.y);
+      }
       ctx.restore();
     }
   }
@@ -574,14 +578,12 @@ export class ButterflyPopGame {
     const r = b.r;
 
     // 1. Festive Golden Curly Ribbon / String dangling below
-    ctx.save();
     ctx.strokeStyle = '#FEF08A';
     ctx.lineWidth = 2.5;
     ctx.beginPath();
     ctx.moveTo(0, r + 6);
     ctx.bezierCurveTo(-14, r + 18, 14, r + 30, -6, r + 42);
     ctx.stroke();
-    ctx.restore();
 
     // 2. Balloon Knot at bottom
     ctx.fillStyle = '#D97706';
@@ -595,15 +597,8 @@ export class ButterflyPopGame {
     ctx.fill();
     ctx.stroke();
 
-    // 3. Shimmering Golden Balloon Body (classic tear-drop / oval)
-    const goldGrad = ctx.createRadialGradient(-r * 0.32, -r * 0.35, 6, 0, 0, r);
-    goldGrad.addColorStop(0, '#FFFBEB'); // Pure white-gold sparkle
-    goldGrad.addColorStop(0.25, '#FEF08A'); // Pale golden shimmer
-    goldGrad.addColorStop(0.65, '#FACC15'); // Bright royal gold
-    goldGrad.addColorStop(0.92, '#EAB308'); // Deep warm gold
-    goldGrad.addColorStop(1, '#B45309'); // Rich amber rim
-
-    ctx.fillStyle = goldGrad;
+    // 3. Shimmering Golden Balloon Body
+    ctx.fillStyle = '#FACC15';
     ctx.strokeStyle = '#78350F';
     ctx.lineWidth = 3.5;
     ctx.beginPath();
@@ -611,8 +606,14 @@ export class ButterflyPopGame {
     ctx.fill();
     ctx.stroke();
 
+    // Soft warm golden shadow contour
+    ctx.fillStyle = 'rgba(180, 83, 9, 0.22)';
+    ctx.beginPath();
+    ctx.ellipse(r * 0.22, r * 0.22, r * 0.68, r * 0.72, 0.3, 0, Math.PI * 2);
+    ctx.fill();
+
     // 4. Glossy Specular Balloon Highlight (curved crescent on upper left)
-    ctx.strokeStyle = 'rgba(255, 255, 255, 0.78)';
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.82)';
     ctx.lineWidth = 4;
     ctx.lineCap = 'round';
     ctx.beginPath();
@@ -620,7 +621,7 @@ export class ButterflyPopGame {
     ctx.stroke();
 
     // Secondary soft glow dot
-    ctx.fillStyle = 'rgba(255, 255, 255, 0.85)';
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.88)';
     ctx.beginPath();
     ctx.arc(-r * 0.52, -r * 0.16, 3.5, 0, Math.PI * 2);
     ctx.fill();
@@ -659,23 +660,26 @@ export class ButterflyPopGame {
 
   /**
    * High-Visibility Custom-Illustrated Cartoon Bumblebee with Flapping Wings & Warning Banner!
-   * (No faded circle — crisp, unmistakable yellow/black striped bee with stinger!)
+   * (Zero Gaussian shadowBlur or clip passes - blazing fast 60fps Skia performance!)
    */
   drawBee(ctx, bee) {
-    // Render golden pollen trail if present
+    // Render golden pollen trail (batched, 0 shadowBlur Gaussian overhead!)
     if (bee.pollenTrail && bee.pollenTrail.length > 0) {
+      ctx.save();
       for (const pt of bee.pollenTrail) {
-        ctx.save();
         const alpha = Math.max(0, pt.life / pt.maxLife);
-        ctx.globalAlpha = alpha * 0.85;
-        ctx.fillStyle = '#FACC15';
-        ctx.shadowColor = '#FEF08A';
-        ctx.shadowBlur = 8;
+        // Outer soft glow
+        ctx.fillStyle = `rgba(254, 240, 138, ${alpha * 0.35})`;
+        ctx.beginPath();
+        ctx.arc(pt.x, pt.y, pt.r * 1.6, 0, Math.PI * 2);
+        ctx.fill();
+        // Inner golden particle
+        ctx.fillStyle = `rgba(250, 204, 21, ${alpha * 0.9})`;
         ctx.beginPath();
         ctx.arc(pt.x, pt.y, pt.r, 0, Math.PI * 2);
         ctx.fill();
-        ctx.restore();
       }
+      ctx.restore();
     }
 
     ctx.save();
@@ -712,19 +716,19 @@ export class ButterflyPopGame {
     ctx.closePath();
     ctx.fill();
 
-    // Plump Bright Yellow Bee Body with clipped Black Stripes
-    ctx.save();
+    // Plump Bright Yellow Bee Body
     ctx.beginPath();
     ctx.ellipse(0, 0, 38, 26, 0, 0, Math.PI * 2);
     ctx.fillStyle = '#FACC15';
     ctx.fill();
-    ctx.clip();
 
+    // 3 Black Stripes (drawn cleanly without clip/stencil overhead!)
     ctx.fillStyle = '#0F172A';
-    ctx.fillRect(-24, -30, 11, 60);
-    ctx.fillRect(-4, -30, 11, 60);
-    ctx.fillRect(16, -30, 9, 60);
-    ctx.restore();
+    ctx.beginPath();
+    ctx.roundRect(-23, -20, 9, 40, 4);
+    ctx.roundRect(-5, -24, 10, 48, 5);
+    ctx.roundRect(13, -20, 9, 40, 4);
+    ctx.fill();
 
     // Crisp outer outline around bee body
     ctx.beginPath();
@@ -784,20 +788,24 @@ export class ButterflyPopGame {
     const sy = 1 - Math.sin(b.wobblePhase) * 0.05;
     ctx.scale(sx, sy);
 
-    const grad = ctx.createRadialGradient(-b.r * 0.3, -b.r * 0.3, b.r * 0.1, 0, 0, b.r);
-    grad.addColorStop(0, 'rgba(255, 255, 255, 0.75)');
-    grad.addColorStop(0.5, `hsla(${b.hue}, 95%, 70%, 0.32)`);
-    grad.addColorStop(1, `hsla(${(b.hue + 60) % 360}, 95%, 60%, 0.68)`);
-
+    // Translucent soap bubble body (0 gradient allocation overhead!)
     ctx.beginPath();
     ctx.arc(0, 0, b.r, 0, Math.PI * 2);
-    ctx.fillStyle = grad;
+    ctx.fillStyle = `hsla(${b.hue}, 92%, 72%, 0.30)`;
     ctx.fill();
     ctx.lineWidth = 3;
     ctx.strokeStyle = 'rgba(255, 255, 255, 0.85)';
     ctx.stroke();
 
-    ctx.fillStyle = 'rgba(255, 255, 255, 0.8)';
+    // Iridescent reflection arc
+    ctx.strokeStyle = `hsla(${(b.hue + 60) % 360}, 95%, 75%, 0.55)`;
+    ctx.lineWidth = 2.5;
+    ctx.beginPath();
+    ctx.arc(0, 0, b.r * 0.82, 0.2 * Math.PI, 0.75 * Math.PI);
+    ctx.stroke();
+
+    // Glossy specular highlight glare
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.82)';
     ctx.beginPath();
     ctx.ellipse(-b.r * 0.35, -b.r * 0.35, b.r * 0.22, b.r * 0.12, -0.6, 0, Math.PI * 2);
     ctx.fill();
@@ -817,23 +825,11 @@ export class ButterflyPopGame {
 
     // Render left & right wings
     [-1, 1].forEach((dir) => {
-      // 1. Forewing (Upper Wing): Elegant curved petal with gradient & veins
+      // 1. Forewing (Upper Wing)
       ctx.save();
       ctx.scale(flapFore, 1);
 
-      const foreGrad = ctx.createRadialGradient(
-        0,
-        -r * 0.2,
-        r * 0.1,
-        dir * r * 0.6,
-        -r * 0.4,
-        r * 0.95
-      );
-      foreGrad.addColorStop(0, '#FFFFFF');
-      foreGrad.addColorStop(0.35, bf.style.topWing);
-      foreGrad.addColorStop(1, bf.style.bottomWing);
-
-      ctx.fillStyle = foreGrad;
+      ctx.fillStyle = bf.style.topWing;
       ctx.strokeStyle = '#FFFFFF';
       ctx.lineWidth = 3;
       ctx.lineJoin = 'round';
@@ -852,6 +848,12 @@ export class ButterflyPopGame {
       ctx.fill();
       ctx.stroke();
 
+      // Soft wing highlight
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.35)';
+      ctx.beginPath();
+      ctx.ellipse(dir * r * 0.55, -r * 0.45, r * 0.32, r * 0.18, dir * 0.4, 0, Math.PI * 2);
+      ctx.fill();
+
       // Delicate stained-glass wing veins
       ctx.strokeStyle = 'rgba(15, 23, 42, 0.25)';
       ctx.lineWidth = 1.8;
@@ -869,15 +871,11 @@ export class ButterflyPopGame {
 
       ctx.restore();
 
-      // 2. Hindwing (Lower Wing): Scalloped rounded petal with jewel eye-spots
+      // 2. Hindwing (Lower Wing)
       ctx.save();
       ctx.scale(flapHind, 1);
 
-      const hindGrad = ctx.createLinearGradient(0, 0, dir * r * 0.8, r * 0.8);
-      hindGrad.addColorStop(0, bf.style.bottomWing);
-      hindGrad.addColorStop(1, bf.style.topWing);
-
-      ctx.fillStyle = hindGrad;
+      ctx.fillStyle = bf.style.bottomWing;
       ctx.strokeStyle = '#FFFFFF';
       ctx.lineWidth = 2.8;
       ctx.beginPath();
@@ -1040,12 +1038,7 @@ export class ButterflyPopGame {
     const wingSpread = 1.5; // slight flight separation along horizontal midline
     
     // Top Wing Half (y <= 0)
-    const shellGradTop = ctx.createRadialGradient(-r * 0.2, -r * 0.4, 4, 0, -r * 0.2, r * 0.9);
-    shellGradTop.addColorStop(0, '#F87171');
-    shellGradTop.addColorStop(0.4, '#EF4444');
-    shellGradTop.addColorStop(1, '#991B1B');
-
-    ctx.fillStyle = shellGradTop;
+    ctx.fillStyle = '#EF4444';
     ctx.strokeStyle = '#0F172A';
     ctx.lineWidth = 3.5;
     ctx.beginPath();
@@ -1055,16 +1048,11 @@ export class ButterflyPopGame {
     ctx.stroke();
 
     // Bottom Wing Half (y >= 0)
-    const shellGradBottom = ctx.createRadialGradient(-r * 0.2, r * 0.4, 4, 0, r * 0.2, r * 0.9);
-    shellGradBottom.addColorStop(0, '#F87171');
-    shellGradBottom.addColorStop(0.4, '#EF4444');
-    shellGradBottom.addColorStop(1, '#991B1B');
-
-    ctx.fillStyle = shellGradBottom;
     ctx.beginPath();
     ctx.arc(0, wingSpread, r, 0, Math.PI);
     ctx.closePath();
     ctx.fill();
+    ctx.stroke();
     ctx.stroke();
 
     // Horizontal Wing Seam Spine (along body length towards head at +x)

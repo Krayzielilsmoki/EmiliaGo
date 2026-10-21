@@ -5,6 +5,7 @@
 // - Hold hand on "PLAY AGAIN" -> "Ready... Set... GO!" animation -> new random pose!
 import { sound } from './sound.js';
 import { settings } from './settings.js';
+import { photoGallery } from './photoGallery.js';
 
 const TOTAL_POSE_IMAGES = 42;
 
@@ -24,8 +25,9 @@ export class SillyPosesGame {
     this.score = 0;
     this.bestScore = settings.data.bestSillyPoses || 0;
 
-    // Shuffled deck of 1..24 pose image indices
+    // Shuffled deck of 1..42 pose image indices
     this.poseDeck = [];
+    this.currentPoseIdx = 1;
     this.currentPoseImg = null;
     this.currentPoseLoaded = false;
 
@@ -43,12 +45,86 @@ export class SillyPosesGame {
     this.photoCtx = this.photoCanvas.getContext('2d');
     this.photoStickers = [];
 
+    // Offscreen 960x540 composite canvas for saving full final snaps to Gallery
+    this.compositeCanvas = document.createElement('canvas');
+    this.compositeCanvas.width = 960;
+    this.compositeCanvas.height = 540;
+    this.compositeCtx = this.compositeCanvas.getContext('2d');
+
     // Hands-free "PLAY AGAIN" hover button state
     this.playAgainHold = 0;
     this._playAgainTick = -1;
     this._lastKnownPlayerBounds = null;
 
+    // In-Game Silly Photos Gallery State
+    this.isGalleryOpen = false;
+    this.galleryPhotos = [];
+    this.galleryPage = 0;
+    this.selectedPhoto = null;
+    this.galleryHold = 0;
+    this._galleryTick = -1;
+    this.galleryCloseHold = 0;
+    this._galleryCloseTick = -1;
+    this.galleryPrevHold = 0;
+    this._galleryPrevTick = -1;
+    this.galleryNextHold = 0;
+    this._galleryNextTick = -1;
+    this.galleryBackHold = 0;
+    this._galleryBackTick = -1;
+    this.galleryDeleteHold = 0;
+    this._galleryDeleteTick = -1;
+    this.galleryPhotoHolds = [0, 0, 0, 0];
+    this._galleryPhotoTicks = [-1, -1, -1, -1];
+
     this.onMilestone = null;
+
+    this._loadGalleryPhotos();
+  }
+
+  async _loadGalleryPhotos() {
+    try {
+      const photos = await photoGallery.getPhotos();
+      for (const p of photos) {
+        if (!p._img) {
+          const img = new Image();
+          img.src = p.dataUrl;
+          p._img = img;
+        }
+      }
+      this.galleryPhotos = photos;
+    } catch (e) {
+      console.warn('Failed to load gallery photos:', e);
+    }
+  }
+
+  openGallery() {
+    this.isGalleryOpen = true;
+    this.selectedPhoto = null;
+    this.galleryHold = 0;
+    this._galleryTick = -1;
+    this.galleryCloseHold = 0;
+    this._galleryCloseTick = -1;
+    this.galleryPrevHold = 0;
+    this._galleryPrevTick = -1;
+    this.galleryNextHold = 0;
+    this._galleryNextTick = -1;
+    this.galleryBackHold = 0;
+    this._galleryBackTick = -1;
+    this.galleryDeleteHold = 0;
+    this._galleryDeleteTick = -1;
+    this.galleryPhotoHolds = [0, 0, 0, 0];
+    this._galleryPhotoTicks = [-1, -1, -1, -1];
+    this.galleryPage = 0;
+    this._loadGalleryPhotos();
+  }
+
+  closeGallery() {
+    this.isGalleryOpen = false;
+    this.selectedPhoto = null;
+    this.galleryCloseHold = 0;
+    this._galleryCloseTick = -1;
+    this.galleryHold = 0;
+    this._galleryTick = -1;
   }
 
   _nextPoseImage() {
@@ -60,6 +136,7 @@ export class SillyPosesGame {
       }
     }
     const idx = this.poseDeck.pop();
+    this.currentPoseIdx = idx;
     this.currentPoseLoaded = false;
     const img = new Image();
     img.onload = () => {
@@ -131,6 +208,15 @@ export class SillyPosesGame {
     if (this.flashAlpha > 0) {
       this.flashAlpha = Math.max(0, this.flashAlpha - dt * 1.8);
     }
+
+    if (this.isGalleryOpen) {
+      this._updateGalleryInteraction(dt, safeBounds, player, pointer);
+      return;
+    }
+
+    // Check Bottom-Left Gallery Button interaction
+    this._updateGalleryButton(dt, safeBounds, player, pointer);
+    if (this.isGalleryOpen) return;
 
     // Keep running bounding box of players for rock-solid zoom framing
     if (this.phase === 'ready_set_go' || this.phase === 'countdown') {
@@ -265,6 +351,11 @@ export class SillyPosesGame {
     const isTwoPlayer =
       (player && player.playerCount >= 2) || settings.data.twoPlayerMode === 'always_2p';
 
+    if (this.isGalleryOpen) {
+      this._renderGalleryOverlay(ctx, cw, ch, safeBounds, player);
+      return;
+    }
+
     // 1. Check if 5-second countdown just finished -> SNAP PICTURE FIRST (Clean video, zero UI occlusion!)
     if (this.phase === 'countdown' && this.phaseTimer <= 0) {
       const targetCanvasW = 1920;
@@ -348,6 +439,7 @@ export class SillyPosesGame {
       }
 
       this._generatePhotoStickers(cw, ch);
+      this._saveFinalSnapToGallery(cw, ch, safeBounds);
 
       this.phase = 'result';
       this.flashAlpha = 1.0;
@@ -606,6 +698,9 @@ export class SillyPosesGame {
       ctx.fillRect(0, 0, cw, ch);
       ctx.restore();
     }
+
+    // 4. Draw Bottom-Left Gallery Button
+    this._drawGalleryButton(ctx, safeBounds);
   }
 
   _drawSplitPoseLayout(ctx, cw, ch, safeBounds, isTwoPlayer) {
@@ -705,6 +800,1068 @@ export class SillyPosesGame {
     ctx.fillStyle = '#FFFFFF';
     ctx.font = '900 15px system-ui, sans-serif';
     ctx.fillText(label, x + w / 2, y + h - 25);
+    ctx.restore();
+  }
+
+  // ---------------------------------------------------------------------------
+  // SILLY PHOTOS PERSISTENT GALLERY INTEGRATION
+  // ---------------------------------------------------------------------------
+
+  _saveFinalSnapToGallery(cw, ch, safeBounds) {
+    try {
+      const compW = 960;
+      const compH = 540;
+      if (this.compositeCanvas.width !== compW || this.compositeCanvas.height !== compH) {
+        this.compositeCanvas.width = compW;
+        this.compositeCanvas.height = compH;
+      }
+      const cCtx = this.compositeCtx;
+      cCtx.clearRect(0, 0, compW, compH);
+      cCtx.imageSmoothingEnabled = true;
+      cCtx.imageSmoothingQuality = 'high';
+
+      // 1. Dark Blue Gradient/Solid Backdrop
+      cCtx.fillStyle = '#0F172A';
+      cCtx.fillRect(0, 0, compW, compH);
+
+      // Subtle decorative star sparkles
+      cCtx.fillStyle = 'rgba(255, 255, 255, 0.15)';
+      for (let i = 0; i < 28; i++) {
+        const sx = (i * 137.5) % compW;
+        const sy = (i * 89.3) % compH;
+        cCtx.beginPath();
+        cCtx.arc(sx, sy, (i % 3) + 1.2, 0, Math.PI * 2);
+        cCtx.fill();
+      }
+
+      // 2. Comparison Header Banner across the top
+      cCtx.save();
+      cCtx.font = '900 21px system-ui, sans-serif';
+      cCtx.textAlign = 'center';
+      cCtx.textBaseline = 'middle';
+      cCtx.strokeStyle = '#020617';
+      cCtx.lineWidth = 4;
+      cCtx.strokeText('✨ HOW DID YOU DO? COMPARE YOUR POSE! ✨', compW * 0.58, 28);
+      cCtx.fillStyle = '#FEF08A';
+      cCtx.fillText('✨ HOW DID YOU DO? COMPARE YOUR POSE! ✨', compW * 0.58, 28);
+      cCtx.restore();
+
+      // 3. Center-Right Framed Zoomed Polaroid Photo of Emilia's Pose
+      const pw = Math.min(540, compW * 0.60);
+      const ph = Math.min(345, compH * 0.68);
+      const photoCX = compW * 0.58;
+      const photoCY = compH * 0.49;
+
+      cCtx.save();
+      cCtx.translate(photoCX, photoCY);
+
+      // White Polaroid Frame with clean border
+      cCtx.fillStyle = '#FFFFFF';
+      cCtx.beginPath();
+      cCtx.roundRect(-pw / 2 - 10, -ph / 2 - 10, pw + 20, ph + 38, 14);
+      cCtx.fill();
+
+      // Snapped Image
+      if (this.photoCanvas && this.photoCanvas.width > 0) {
+        cCtx.drawImage(this.photoCanvas, -pw / 2, -ph / 2, pw, ph);
+      }
+
+      cCtx.strokeStyle = '#CBD5E1';
+      cCtx.lineWidth = 2;
+      cCtx.strokeRect(-pw / 2, -ph / 2, pw, ph);
+
+      // Caption banner on bottom Polaroid rim
+      cCtx.fillStyle = '#1E293B';
+      cCtx.font = '900 16px system-ui, cursive, sans-serif';
+      cCtx.textAlign = 'center';
+      cCtx.textBaseline = 'middle';
+      cCtx.fillText('📸 YOUR POSE!', 0, ph / 2 + 15);
+      cCtx.restore();
+
+      // 4. Far Left: Target Pose Card
+      const targetCardW = 160;
+      const targetCardH = targetCardW * 1.15;
+      const targetCardX = 32;
+      const targetCardY = 66;
+      this._drawPosePictureCard(cCtx, targetCardX, targetCardY, targetCardW, targetCardH, true, '🎯 TARGET POSE');
+
+      // 5. Comic Stickers & Flair Words ("COOL!", "SUPERSTAR!", Emojis)
+      const scaleX = compW / cw;
+      const scaleY = compH / ch;
+      for (let i = 0; i < this.photoStickers.length; i++) {
+        const st = this.photoStickers[i];
+        const sx = st.x * scaleX;
+        const sy = st.y * scaleY;
+
+        cCtx.save();
+        cCtx.translate(sx, sy);
+        cCtx.rotate(st.angle);
+
+        if (st.type === 'word') {
+          cCtx.font = '900 22px system-ui, sans-serif';
+          const tw = cCtx.measureText(st.text).width + 30;
+          const th = 38;
+          cCtx.fillStyle = st.bg;
+          cCtx.strokeStyle = '#FFFFFF';
+          cCtx.lineWidth = 3.5;
+          cCtx.beginPath();
+          cCtx.roundRect(-tw / 2, -th / 2, tw, th, 19);
+          cCtx.fill();
+          cCtx.stroke();
+
+          cCtx.textAlign = 'center';
+          cCtx.textBaseline = 'middle';
+          cCtx.fillStyle = st.fg;
+          cCtx.fillText(st.text, 0, 1.5);
+        } else {
+          cCtx.font = `${Math.round(st.size * 0.72)}px system-ui, sans-serif`;
+          cCtx.textAlign = 'center';
+          cCtx.textBaseline = 'middle';
+          cCtx.fillText(st.emoji, 0, 0);
+        }
+        cCtx.restore();
+      }
+
+      // 6. Watermark stamp at bottom left
+      cCtx.save();
+      cCtx.font = '700 12px system-ui, sans-serif';
+      cCtx.fillStyle = '#94A3B8';
+      cCtx.textAlign = 'left';
+      cCtx.textBaseline = 'bottom';
+      const now = new Date();
+      const dateLabel = now.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+      cCtx.fillText(`EmiliaGO • Silly Poses • ${dateLabel}`, 34, compH - 16);
+      cCtx.restore();
+
+      // 7. Save to Persistent Gallery
+      const dataUrl = this.compositeCanvas.toDataURL('image/jpeg', 0.82);
+      photoGallery
+        .savePhoto({
+          poseName: `Pose #${this.currentPoseIdx}`,
+          dataUrl,
+          stars: 3,
+        })
+        .then((newPhoto) => {
+          if (newPhoto) {
+            const img = new Image();
+            img.src = newPhoto.dataUrl;
+            newPhoto._img = img;
+            this.galleryPhotos.unshift(newPhoto);
+          }
+        });
+    } catch (err) {
+      console.warn('Failed to save snap to gallery:', err);
+    }
+  }
+
+  _updateGalleryButton(dt, safeBounds, player, pointer) {
+    const gBtnX = safeBounds.left + 64;
+    const gBtnY = safeBounds.bottom - 56;
+    const gBtnR = 46;
+
+    const hands = [];
+    const activePlayers =
+      player && player.allPlayers && player.allPlayers.length > 0
+        ? player.allPlayers
+        : player && player.detected
+        ? [player]
+        : [];
+    for (const pObj of activePlayers) {
+      if (!pObj.colliders) continue;
+      if (pObj.colliders.leftHand && pObj.colliders.leftHand.visibility > 0.3) {
+        hands.push(pObj.colliders.leftHand);
+      }
+      if (pObj.colliders.rightHand && pObj.colliders.rightHand.visibility > 0.3) {
+        hands.push(pObj.colliders.rightHand);
+      }
+    }
+
+    if (pointer && pointer.active) {
+      hands.push(pointer);
+      if (pointer.clicked && Math.hypot(pointer.x - gBtnX, pointer.y - gBtnY) < gBtnR + 25) {
+        sound.playPop();
+        this.openGallery();
+        return;
+      }
+    }
+
+    let hovering = false;
+    for (const h of hands) {
+      if (Math.hypot(h.x - gBtnX, h.y - gBtnY) < gBtnR + (h.r || 38) * 0.65) {
+        hovering = true;
+        break;
+      }
+    }
+
+    if (hovering) {
+      this.galleryHold = Math.min(1.0, this.galleryHold + dt / 1.2);
+      const step = Math.floor(this.galleryHold * 5);
+      if (step > this._galleryTick) {
+        this._galleryTick = step;
+        sound.playCalibrationTick(this.galleryHold);
+      }
+      if (this.galleryHold >= 1.0) {
+        this.galleryHold = 0;
+        this._galleryTick = -1;
+        sound.playPop();
+        this.openGallery();
+      }
+    } else {
+      this.galleryHold = Math.max(0, this.galleryHold - dt * 2.0);
+      if (this.galleryHold === 0) {
+        this._galleryTick = -1;
+      }
+    }
+  }
+
+  _drawGalleryButton(ctx, safeBounds) {
+    const gBtnX = safeBounds.left + 64;
+    const gBtnY = safeBounds.bottom - 56;
+    const gBtnR = 46;
+
+    ctx.save();
+    ctx.translate(gBtnX, gBtnY);
+
+    // Glowing purple/violet circular button
+    ctx.beginPath();
+    ctx.arc(0, 0, gBtnR, 0, Math.PI * 2);
+    ctx.fillStyle = '#8B5CF6';
+    ctx.fill();
+    ctx.lineWidth = 4;
+    ctx.strokeStyle = '#FEF08A';
+    ctx.stroke();
+
+    // Icon & Label
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.font = '26px system-ui, sans-serif';
+    ctx.fillText('🖼️', 0, -10);
+    ctx.fillStyle = '#FFFFFF';
+    ctx.font = '900 13px system-ui, sans-serif';
+    ctx.fillText('GALLERY', 0, 16);
+
+    // Photo Count Badge
+    if (this.galleryPhotos.length > 0) {
+      const badgeX = gBtnR * 0.65;
+      const badgeY = -gBtnR * 0.65;
+      const countStr = String(this.galleryPhotos.length);
+      ctx.font = '900 13px system-ui, sans-serif';
+      const bw = Math.max(24, ctx.measureText(countStr).width + 12);
+      ctx.beginPath();
+      ctx.roundRect(badgeX - bw / 2, badgeY - 11, bw, 22, 11);
+      ctx.fillStyle = '#EC4899';
+      ctx.fill();
+      ctx.lineWidth = 2;
+      ctx.strokeStyle = '#FFFFFF';
+      ctx.stroke();
+
+      ctx.fillStyle = '#FFFFFF';
+      ctx.fillText(countStr, badgeX, badgeY + 1);
+    }
+
+    // Hover hold progress ring
+    if (this.galleryHold > 0) {
+      ctx.beginPath();
+      ctx.arc(0, 0, gBtnR + 7, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * this.galleryHold);
+      ctx.strokeStyle = '#FACC15';
+      ctx.lineWidth = 7;
+      ctx.lineCap = 'round';
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+
+  _getGalleryCardBoxes(safeBounds) {
+    const availW = safeBounds.right - safeBounds.left - 180;
+    const availH = safeBounds.bottom - safeBounds.top - 120;
+    const cardW = Math.min(420, (availW - 30) / 2);
+    const cardH = Math.min(236, (availH - 24) / 2);
+    const startX = (safeBounds.left + safeBounds.right) / 2 - cardW - 15;
+    const startY = safeBounds.top + 80;
+
+    return [
+      { x: startX, y: startY, w: cardW, h: cardH },
+      { x: startX + cardW + 30, y: startY, w: cardW, h: cardH },
+      { x: startX, y: startY + cardH + 20, w: cardW, h: cardH },
+      { x: startX + cardW + 30, y: startY + cardH + 20, w: cardW, h: cardH },
+    ];
+  }
+
+  _updateGalleryInteraction(dt, safeBounds, player, pointer) {
+    const hands = [];
+    const activePlayers =
+      player && player.allPlayers && player.allPlayers.length > 0
+        ? player.allPlayers
+        : player && player.detected
+        ? [player]
+        : [];
+    for (const pObj of activePlayers) {
+      if (!pObj.colliders) continue;
+      if (pObj.colliders.leftHand && pObj.colliders.leftHand.visibility > 0.3) {
+        hands.push(pObj.colliders.leftHand);
+      }
+      if (pObj.colliders.rightHand && pObj.colliders.rightHand.visibility > 0.3) {
+        hands.push(pObj.colliders.rightHand);
+      }
+    }
+    if (pointer && pointer.active) {
+      hands.push(pointer);
+    }
+
+    // A. LIGHTBOX VIEW (Single Photo Full View)
+    if (this.selectedPhoto !== null) {
+      // 1. Back to Grid Button (top-left)
+      const backX = safeBounds.left + 72;
+      const backY = safeBounds.top + 36;
+      const backR = 36;
+
+      if (
+        pointer &&
+        pointer.active &&
+        pointer.clicked &&
+        Math.hypot(pointer.x - backX, pointer.y - backY) < backR + 20
+      ) {
+        sound.playPop();
+        this.selectedPhoto = null;
+        return;
+      }
+
+      let hoveringBack = false;
+      for (const h of hands) {
+        if (Math.hypot(h.x - backX, h.y - backY) < backR + (h.r || 38) * 0.65) {
+          hoveringBack = true;
+          break;
+        }
+      }
+      if (hoveringBack) {
+        this.galleryBackHold = Math.min(1.0, this.galleryBackHold + dt / 1.1);
+        const step = Math.floor(this.galleryBackHold * 5);
+        if (step > this._galleryBackTick) {
+          this._galleryBackTick = step;
+          sound.playCalibrationTick(this.galleryBackHold);
+        }
+        if (this.galleryBackHold >= 1.0) {
+          this.galleryBackHold = 0;
+          this._galleryBackTick = -1;
+          sound.playPop();
+          this.selectedPhoto = null;
+          return;
+        }
+      } else {
+        this.galleryBackHold = Math.max(0, this.galleryBackHold - dt * 2.0);
+        if (this.galleryBackHold === 0) this._galleryBackTick = -1;
+      }
+
+      // 2. Delete Photo Button (top-right)
+      const delX = safeBounds.right - 72;
+      const delY = safeBounds.top + 36;
+      const delR = 36;
+
+      if (
+        pointer &&
+        pointer.active &&
+        pointer.clicked &&
+        Math.hypot(pointer.x - delX, pointer.y - delY) < delR + 20
+      ) {
+        sound.playPop();
+        const delId = this.selectedPhoto.id;
+        photoGallery.deletePhoto(delId);
+        this.galleryPhotos = this.galleryPhotos.filter((p) => p.id !== delId);
+        this.selectedPhoto = null;
+        if (this.galleryPage * 4 >= this.galleryPhotos.length && this.galleryPage > 0) {
+          this.galleryPage--;
+        }
+        return;
+      }
+
+      let hoveringDelete = false;
+      for (const h of hands) {
+        if (Math.hypot(h.x - delX, h.y - delY) < delR + (h.r || 38) * 0.65) {
+          hoveringDelete = true;
+          break;
+        }
+      }
+      if (hoveringDelete) {
+        this.galleryDeleteHold = Math.min(1.0, this.galleryDeleteHold + dt / 1.6);
+        const step = Math.floor(this.galleryDeleteHold * 5);
+        if (step > this._galleryDeleteTick) {
+          this._galleryDeleteTick = step;
+          sound.playCalibrationTick(this.galleryDeleteHold);
+        }
+        if (this.galleryDeleteHold >= 1.0) {
+          this.galleryDeleteHold = 0;
+          this._galleryDeleteTick = -1;
+          sound.playPop();
+          const delId = this.selectedPhoto.id;
+          photoGallery.deletePhoto(delId);
+          this.galleryPhotos = this.galleryPhotos.filter((p) => p.id !== delId);
+          this.selectedPhoto = null;
+          if (this.galleryPage * 4 >= this.galleryPhotos.length && this.galleryPage > 0) {
+            this.galleryPage--;
+          }
+          return;
+        }
+      } else {
+        this.galleryDeleteHold = Math.max(0, this.galleryDeleteHold - dt * 2.0);
+        if (this.galleryDeleteHold === 0) this._galleryDeleteTick = -1;
+      }
+
+      // 3. Prev / Next arrows in Lightbox (if multiple photos)
+      if (this.galleryPhotos.length > 1) {
+        const curIdx = this.galleryPhotos.findIndex((p) => p.id === this.selectedPhoto.id);
+        const midY = (safeBounds.top + safeBounds.bottom) / 2;
+        const arrowLeftX = safeBounds.left + 50;
+        const arrowRightX = safeBounds.right - 50;
+        const arrowR = 40;
+
+        // Prev Arrow
+        if (curIdx > 0) {
+          if (
+            pointer &&
+            pointer.active &&
+            pointer.clicked &&
+            Math.hypot(pointer.x - arrowLeftX, pointer.y - midY) < arrowR + 20
+          ) {
+            sound.playPop();
+            this.selectedPhoto = this.galleryPhotos[curIdx - 1];
+            return;
+          }
+          let hoveringPrev = hands.some(
+            (h) => Math.hypot(h.x - arrowLeftX, h.y - midY) < arrowR + (h.r || 38) * 0.65
+          );
+          if (hoveringPrev) {
+            this.galleryPrevHold = Math.min(1.0, this.galleryPrevHold + dt / 1.0);
+            if (this.galleryPrevHold >= 1.0) {
+              this.galleryPrevHold = 0;
+              sound.playPop();
+              this.selectedPhoto = this.galleryPhotos[curIdx - 1];
+              return;
+            }
+          } else {
+            this.galleryPrevHold = Math.max(0, this.galleryPrevHold - dt * 2.0);
+          }
+        }
+
+        // Next Arrow
+        if (curIdx < this.galleryPhotos.length - 1) {
+          if (
+            pointer &&
+            pointer.active &&
+            pointer.clicked &&
+            Math.hypot(pointer.x - arrowRightX, pointer.y - midY) < arrowR + 20
+          ) {
+            sound.playPop();
+            this.selectedPhoto = this.galleryPhotos[curIdx + 1];
+            return;
+          }
+          let hoveringNext = hands.some(
+            (h) => Math.hypot(h.x - arrowRightX, h.y - midY) < arrowR + (h.r || 38) * 0.65
+          );
+          if (hoveringNext) {
+            this.galleryNextHold = Math.min(1.0, this.galleryNextHold + dt / 1.0);
+            if (this.galleryNextHold >= 1.0) {
+              this.galleryNextHold = 0;
+              sound.playPop();
+              this.selectedPhoto = this.galleryPhotos[curIdx + 1];
+              return;
+            }
+          } else {
+            this.galleryNextHold = Math.max(0, this.galleryNextHold - dt * 2.0);
+          }
+        }
+      }
+      return;
+    }
+
+    // B. GRID VIEW (2x2 Grid of Photos)
+    // 1. Close Button (top-right)
+    const closeX = safeBounds.right - 64;
+    const closeY = safeBounds.top + 36;
+    const closeR = 36;
+
+    if (
+      pointer &&
+      pointer.active &&
+      pointer.clicked &&
+      Math.hypot(pointer.x - closeX, pointer.y - closeY) < closeR + 20
+    ) {
+      sound.playPop();
+      this.closeGallery();
+      return;
+    }
+
+    let hoveringClose = false;
+    for (const h of hands) {
+      if (Math.hypot(h.x - closeX, h.y - closeY) < closeR + (h.r || 38) * 0.65) {
+        hoveringClose = true;
+        break;
+      }
+    }
+    if (hoveringClose) {
+      this.galleryCloseHold = Math.min(1.0, this.galleryCloseHold + dt / 1.1);
+      const step = Math.floor(this.galleryCloseHold * 5);
+      if (step > this._galleryCloseTick) {
+        this._galleryCloseTick = step;
+        sound.playCalibrationTick(this.galleryCloseHold);
+      }
+      if (this.galleryCloseHold >= 1.0) {
+        this.galleryCloseHold = 0;
+        this._galleryCloseTick = -1;
+        sound.playPop();
+        this.closeGallery();
+        return;
+      }
+    } else {
+      this.galleryCloseHold = Math.max(0, this.galleryCloseHold - dt * 2.0);
+      if (this.galleryCloseHold === 0) this._galleryCloseTick = -1;
+    }
+
+    // 2. Pagination (Prev / Next Page)
+    const midY = (safeBounds.top + safeBounds.bottom) / 2;
+    const prevX = safeBounds.left + 50;
+    const nextX = safeBounds.right - 50;
+    const navR = 38;
+
+    if (this.galleryPage > 0) {
+      if (
+        pointer &&
+        pointer.active &&
+        pointer.clicked &&
+        Math.hypot(pointer.x - prevX, pointer.y - midY) < navR + 20
+      ) {
+        sound.playPop();
+        this.galleryPage--;
+        return;
+      }
+      let hoveringPrev = hands.some(
+        (h) => Math.hypot(h.x - prevX, h.y - midY) < navR + (h.r || 38) * 0.65
+      );
+      if (hoveringPrev) {
+        this.galleryPrevHold = Math.min(1.0, this.galleryPrevHold + dt / 1.1);
+        if (this.galleryPrevHold >= 1.0) {
+          this.galleryPrevHold = 0;
+          sound.playPop();
+          this.galleryPage--;
+          return;
+        }
+      } else {
+        this.galleryPrevHold = Math.max(0, this.galleryPrevHold - dt * 2.0);
+      }
+    } else {
+      this.galleryPrevHold = 0;
+    }
+
+    const totalPages = Math.max(1, Math.ceil(this.galleryPhotos.length / 4));
+    if (this.galleryPage < totalPages - 1) {
+      if (
+        pointer &&
+        pointer.active &&
+        pointer.clicked &&
+        Math.hypot(pointer.x - nextX, pointer.y - midY) < navR + 20
+      ) {
+        sound.playPop();
+        this.galleryPage++;
+        return;
+      }
+      let hoveringNext = hands.some(
+        (h) => Math.hypot(h.x - nextX, h.y - midY) < navR + (h.r || 38) * 0.65
+      );
+      if (hoveringNext) {
+        this.galleryNextHold = Math.min(1.0, this.galleryNextHold + dt / 1.1);
+        if (this.galleryNextHold >= 1.0) {
+          this.galleryNextHold = 0;
+          sound.playPop();
+          this.galleryPage++;
+          return;
+        }
+      } else {
+        this.galleryNextHold = Math.max(0, this.galleryNextHold - dt * 2.0);
+      }
+    } else {
+      this.galleryNextHold = 0;
+    }
+
+    // 3. Photo Cards in 2x2 Grid
+    const startIdx = this.galleryPage * 4;
+    const pagePhotos = this.galleryPhotos.slice(startIdx, startIdx + 4);
+    const cardBoxes = this._getGalleryCardBoxes(safeBounds);
+
+    for (let i = 0; i < 4; i++) {
+      if (i >= pagePhotos.length) {
+        this.galleryPhotoHolds[i] = 0;
+        this._galleryPhotoTicks[i] = -1;
+        continue;
+      }
+      const box = cardBoxes[i];
+      const p = pagePhotos[i];
+
+      // Pointer click
+      if (pointer && pointer.active && pointer.clicked) {
+        if (
+          pointer.x >= box.x &&
+          pointer.x <= box.x + box.w &&
+          pointer.y >= box.y &&
+          pointer.y <= box.y + box.h
+        ) {
+          sound.playPop();
+          this.selectedPhoto = p;
+          return;
+        }
+      }
+
+      // Hands hovering card
+      let hovering = false;
+      for (const h of hands) {
+        if (
+          h.x >= box.x - 15 &&
+          h.x <= box.x + box.w + 15 &&
+          h.y >= box.y - 15 &&
+          h.y <= box.y + box.h + 15
+        ) {
+          hovering = true;
+          break;
+        }
+      }
+
+      if (hovering) {
+        this.galleryPhotoHolds[i] = Math.min(1.0, this.galleryPhotoHolds[i] + dt / 1.1);
+        const step = Math.floor(this.galleryPhotoHolds[i] * 5);
+        if (step > this._galleryPhotoTicks[i]) {
+          this._galleryPhotoTicks[i] = step;
+          sound.playCalibrationTick(this.galleryPhotoHolds[i]);
+        }
+        if (this.galleryPhotoHolds[i] >= 1.0) {
+          this.galleryPhotoHolds[i] = 0;
+          this._galleryPhotoTicks[i] = -1;
+          sound.playPop();
+          this.selectedPhoto = p;
+          return;
+        }
+      } else {
+        this.galleryPhotoHolds[i] = Math.max(0, this.galleryPhotoHolds[i] - dt * 2.0);
+        if (this.galleryPhotoHolds[i] === 0) {
+          this._galleryPhotoTicks[i] = -1;
+        }
+      }
+    }
+  }
+
+  _renderGalleryOverlay(ctx, cw, ch, safeBounds, player) {
+    ctx.save();
+    // Dark Backdrop
+    ctx.fillStyle = 'rgba(15, 23, 42, 0.95)';
+    ctx.fillRect(0, 0, cw, ch);
+
+    // Top Title
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.font = '900 32px system-ui, sans-serif';
+    ctx.fillStyle = '#FEF08A';
+    ctx.fillText('🖼️ SILLY PHOTOS GALLERY', cw / 2, safeBounds.top + 32);
+
+    ctx.font = '700 15px system-ui, sans-serif';
+    ctx.fillStyle = '#94A3B8';
+    ctx.fillText(
+      `${this.galleryPhotos.length} Saved Snap${this.galleryPhotos.length === 1 ? '' : 's'}`,
+      cw / 2,
+      safeBounds.top + 58
+    );
+
+    // A. LIGHTBOX VIEW
+    if (this.selectedPhoto !== null) {
+      const p = this.selectedPhoto;
+
+      // 1. Large Center Polaroid
+      const pw = Math.min(840, cw * 0.72);
+      const ph = pw * (9 / 16);
+      const photoCX = cw / 2;
+      const photoCY = (safeBounds.top + safeBounds.bottom) / 2 + 10;
+
+      ctx.save();
+      ctx.translate(photoCX, photoCY);
+
+      // White frame with clean shadow
+      ctx.fillStyle = '#FFFFFF';
+      ctx.beginPath();
+      ctx.roundRect(-pw / 2 - 12, -ph / 2 - 12, pw + 24, ph + 44, 18);
+      ctx.fill();
+
+      // Image
+      if (p._img && p._img.complete) {
+        ctx.drawImage(p._img, -pw / 2, -ph / 2, pw, ph);
+      } else {
+        ctx.fillStyle = '#1E293B';
+        ctx.fillRect(-pw / 2, -ph / 2, pw, ph);
+      }
+
+      ctx.strokeStyle = '#CBD5E1';
+      ctx.lineWidth = 2;
+      ctx.strokeRect(-pw / 2, -ph / 2, pw, ph);
+
+      // Bottom banner on polaroid rim
+      ctx.fillStyle = '#0F172A';
+      ctx.font = '900 18px system-ui, cursive, sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(`📸 ${p.poseName} • ${p.dateStr}`, 0, ph / 2 + 18);
+      ctx.restore();
+
+      // 2. Back Button (top-left)
+      const backX = safeBounds.left + 72;
+      const backY = safeBounds.top + 36;
+      const backR = 36;
+      ctx.save();
+      ctx.translate(backX, backY);
+      ctx.beginPath();
+      ctx.arc(0, 0, backR, 0, Math.PI * 2);
+      ctx.fillStyle = '#3B82F6';
+      ctx.fill();
+      ctx.lineWidth = 3.5;
+      ctx.strokeStyle = '#FFFFFF';
+      ctx.stroke();
+
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.font = '900 15px system-ui, sans-serif';
+      ctx.fillStyle = '#FFFFFF';
+      ctx.fillText('🔙 BACK', 0, 1);
+
+      if (this.galleryBackHold > 0) {
+        ctx.beginPath();
+        ctx.arc(0, 0, backR + 6, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * this.galleryBackHold);
+        ctx.strokeStyle = '#FACC15';
+        ctx.lineWidth = 6;
+        ctx.lineCap = 'round';
+        ctx.stroke();
+      }
+      ctx.restore();
+
+      // 3. Delete Button (top-right)
+      const delX = safeBounds.right - 72;
+      const delY = safeBounds.top + 36;
+      const delR = 36;
+      ctx.save();
+      ctx.translate(delX, delY);
+      ctx.beginPath();
+      ctx.arc(0, 0, delR, 0, Math.PI * 2);
+      ctx.fillStyle = '#EF4444';
+      ctx.fill();
+      ctx.lineWidth = 3.5;
+      ctx.strokeStyle = '#FFFFFF';
+      ctx.stroke();
+
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.font = '900 13px system-ui, sans-serif';
+      ctx.fillStyle = '#FFFFFF';
+      ctx.fillText('🗑️ DELETE', 0, 1);
+
+      if (this.galleryDeleteHold > 0) {
+        ctx.beginPath();
+        ctx.arc(0, 0, delR + 6, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * this.galleryDeleteHold);
+        ctx.strokeStyle = '#FCA5A5';
+        ctx.lineWidth = 6;
+        ctx.lineCap = 'round';
+        ctx.stroke();
+      }
+      ctx.restore();
+
+      // 4. Side Arrows in Lightbox (if multiple photos)
+      if (this.galleryPhotos.length > 1) {
+        const curIdx = this.galleryPhotos.findIndex((item) => item.id === p.id);
+        const midY = (safeBounds.top + safeBounds.bottom) / 2;
+        const arrowLeftX = safeBounds.left + 50;
+        const arrowRightX = safeBounds.right - 50;
+        const arrowR = 38;
+
+        if (curIdx > 0) {
+          ctx.save();
+          ctx.translate(arrowLeftX, midY);
+          ctx.beginPath();
+          ctx.arc(0, 0, arrowR, 0, Math.PI * 2);
+          ctx.fillStyle = '#1E293B';
+          ctx.fill();
+          ctx.lineWidth = 3;
+          ctx.strokeStyle = '#94A3B8';
+          ctx.stroke();
+          ctx.fillStyle = '#FFFFFF';
+          ctx.font = '900 24px system-ui, sans-serif';
+          ctx.textAlign = 'center';
+          ctx.textBaseline = 'middle';
+          ctx.fillText('◀', 0, 1);
+          if (this.galleryPrevHold > 0) {
+            ctx.beginPath();
+            ctx.arc(
+              0,
+              0,
+              arrowR + 6,
+              -Math.PI / 2,
+              -Math.PI / 2 + Math.PI * 2 * this.galleryPrevHold
+            );
+            ctx.strokeStyle = '#FACC15';
+            ctx.lineWidth = 6;
+            ctx.stroke();
+          }
+          ctx.restore();
+        }
+
+        if (curIdx < this.galleryPhotos.length - 1) {
+          ctx.save();
+          ctx.translate(arrowRightX, midY);
+          ctx.beginPath();
+          ctx.arc(0, 0, arrowR, 0, Math.PI * 2);
+          ctx.fillStyle = '#1E293B';
+          ctx.fill();
+          ctx.lineWidth = 3;
+          ctx.strokeStyle = '#94A3B8';
+          ctx.stroke();
+          ctx.fillStyle = '#FFFFFF';
+          ctx.font = '900 24px system-ui, sans-serif';
+          ctx.textAlign = 'center';
+          ctx.textBaseline = 'middle';
+          ctx.fillText('▶', 0, 1);
+          if (this.galleryNextHold > 0) {
+            ctx.beginPath();
+            ctx.arc(
+              0,
+              0,
+              arrowR + 6,
+              -Math.PI / 2,
+              -Math.PI / 2 + Math.PI * 2 * this.galleryNextHold
+            );
+            ctx.strokeStyle = '#FACC15';
+            ctx.lineWidth = 6;
+            ctx.stroke();
+          }
+          ctx.restore();
+        }
+      }
+    } else {
+      // B. GRID VIEW
+      // 1. Close Button (top-right)
+      const closeX = safeBounds.right - 64;
+      const closeY = safeBounds.top + 36;
+      const closeR = 36;
+      ctx.save();
+      ctx.translate(closeX, closeY);
+      ctx.beginPath();
+      ctx.arc(0, 0, closeR, 0, Math.PI * 2);
+      ctx.fillStyle = '#EF4444';
+      ctx.fill();
+      ctx.lineWidth = 3.5;
+      ctx.strokeStyle = '#FFFFFF';
+      ctx.stroke();
+
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.font = '900 15px system-ui, sans-serif';
+      ctx.fillStyle = '#FFFFFF';
+      ctx.fillText('✖ CLOSE', 0, 1);
+
+      if (this.galleryCloseHold > 0) {
+        ctx.beginPath();
+        ctx.arc(
+          0,
+          0,
+          closeR + 6,
+          -Math.PI / 2,
+          -Math.PI / 2 + Math.PI * 2 * this.galleryCloseHold
+        );
+        ctx.strokeStyle = '#FACC15';
+        ctx.lineWidth = 6;
+        ctx.lineCap = 'round';
+        ctx.stroke();
+      }
+      ctx.restore();
+
+      // Empty state
+      if (this.galleryPhotos.length === 0) {
+        ctx.save();
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.font = '64px system-ui, sans-serif';
+        ctx.fillText('📸', cw / 2, ch * 0.44);
+
+        ctx.font = '900 28px system-ui, sans-serif';
+        ctx.fillStyle = '#FEF08A';
+        ctx.fillText('No Silly Photos Saved Yet!', cw / 2, ch * 0.54);
+
+        ctx.font = '600 18px system-ui, sans-serif';
+        ctx.fillStyle = '#94A3B8';
+        ctx.fillText(
+          'Play Silly Poses and copy funny poses to collect hilarious snaps! ✨',
+          cw / 2,
+          ch * 0.6
+        );
+        ctx.restore();
+      } else {
+        // Draw 2x2 Photo Cards
+        const startIdx = this.galleryPage * 4;
+        const pagePhotos = this.galleryPhotos.slice(startIdx, startIdx + 4);
+        const cardBoxes = this._getGalleryCardBoxes(safeBounds);
+
+        for (let i = 0; i < pagePhotos.length; i++) {
+          const p = pagePhotos[i];
+          const box = cardBoxes[i];
+          const hold = this.galleryPhotoHolds[i] || 0;
+
+          ctx.save();
+          // Card shadow and white background
+          ctx.fillStyle = '#FFFFFF';
+          ctx.beginPath();
+          ctx.roundRect(box.x, box.y, box.w, box.h, 14);
+          ctx.fill();
+
+          // If hovered, glowing border
+          if (hold > 0) {
+            ctx.lineWidth = 5;
+            ctx.strokeStyle = '#FACC15';
+            ctx.stroke();
+          } else {
+            ctx.lineWidth = 2.5;
+            ctx.strokeStyle = '#CBD5E1';
+            ctx.stroke();
+          }
+
+          // Card image (16:9 inner area)
+          const imgH = box.h - 32;
+          const pad = 6;
+          if (p._img && p._img.complete) {
+            ctx.drawImage(p._img, box.x + pad, box.y + pad, box.w - pad * 2, imgH - pad);
+          } else {
+            ctx.fillStyle = '#1E293B';
+            ctx.fillRect(box.x + pad, box.y + pad, box.w - pad * 2, imgH - pad);
+          }
+
+          // Card Footer
+          ctx.textAlign = 'center';
+          ctx.textBaseline = 'middle';
+          ctx.fillStyle = '#0F172A';
+          ctx.font = '900 13px system-ui, sans-serif';
+          ctx.fillText(`📸 ${p.poseName} • ${p.dateStr}`, box.x + box.w / 2, box.y + box.h - 15);
+
+          // Hold Progress Ring over card center
+          if (hold > 0) {
+            const cx = box.x + box.w / 2;
+            const cy = box.y + imgH / 2;
+            ctx.beginPath();
+            ctx.arc(cx, cy, 32, 0, Math.PI * 2);
+            ctx.fillStyle = 'rgba(15, 23, 42, 0.65)';
+            ctx.fill();
+
+            ctx.beginPath();
+            ctx.arc(cx, cy, 32, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * hold);
+            ctx.strokeStyle = '#FACC15';
+            ctx.lineWidth = 7;
+            ctx.lineCap = 'round';
+            ctx.stroke();
+
+            ctx.fillStyle = '#FFFFFF';
+            ctx.font = '900 14px system-ui, sans-serif';
+            ctx.fillText('VIEW', cx, cy + 1);
+          }
+          ctx.restore();
+        }
+
+        // Pagination side arrows
+        const midY = (safeBounds.top + safeBounds.bottom) / 2;
+        const prevX = safeBounds.left + 50;
+        const nextX = safeBounds.right - 50;
+        const navR = 38;
+        const totalPages = Math.ceil(this.galleryPhotos.length / 4);
+
+        if (this.galleryPage > 0) {
+          ctx.save();
+          ctx.translate(prevX, midY);
+          ctx.beginPath();
+          ctx.arc(0, 0, navR, 0, Math.PI * 2);
+          ctx.fillStyle = '#1E293B';
+          ctx.fill();
+          ctx.lineWidth = 3;
+          ctx.strokeStyle = '#94A3B8';
+          ctx.stroke();
+          ctx.fillStyle = '#FFFFFF';
+          ctx.font = '900 24px system-ui, sans-serif';
+          ctx.fillText('◀', 0, 1);
+          if (this.galleryPrevHold > 0) {
+            ctx.beginPath();
+            ctx.arc(
+              0,
+              0,
+              navR + 6,
+              -Math.PI / 2,
+              -Math.PI / 2 + Math.PI * 2 * this.galleryPrevHold
+            );
+            ctx.strokeStyle = '#FACC15';
+            ctx.lineWidth = 6;
+            ctx.stroke();
+          }
+          ctx.restore();
+        }
+
+        if (this.galleryPage < totalPages - 1) {
+          ctx.save();
+          ctx.translate(nextX, midY);
+          ctx.beginPath();
+          ctx.arc(0, 0, navR, 0, Math.PI * 2);
+          ctx.fillStyle = '#1E293B';
+          ctx.fill();
+          ctx.lineWidth = 3;
+          ctx.strokeStyle = '#94A3B8';
+          ctx.stroke();
+          ctx.fillStyle = '#FFFFFF';
+          ctx.font = '900 24px system-ui, sans-serif';
+          ctx.fillText('▶', 0, 1);
+          if (this.galleryNextHold > 0) {
+            ctx.beginPath();
+            ctx.arc(
+              0,
+              0,
+              navR + 6,
+              -Math.PI / 2,
+              -Math.PI / 2 + Math.PI * 2 * this.galleryNextHold
+            );
+            ctx.strokeStyle = '#FACC15';
+            ctx.lineWidth = 6;
+            ctx.stroke();
+          }
+          ctx.restore();
+        }
+
+        // Page Indicator
+        ctx.save();
+        ctx.font = '900 16px system-ui, sans-serif';
+        ctx.fillStyle = '#FEF08A';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(`Page ${this.galleryPage + 1} of ${totalPages}`, cw / 2, safeBounds.bottom - 22);
+        ctx.restore();
+      }
+    }
+
+    // Hand Cursors in Gallery Overlay
+    const activePlayers =
+      player && player.allPlayers && player.allPlayers.length > 0
+        ? player.allPlayers
+        : player && player.detected
+        ? [player]
+        : [];
+    for (const pObj of activePlayers) {
+      if (!pObj.colliders) continue;
+      for (const hk of ['leftHand', 'rightHand']) {
+        const h = pObj.colliders[hk];
+        if (h && h.visibility > 0.3) {
+          ctx.beginPath();
+          ctx.arc(h.x, h.y, 24, 0, Math.PI * 2);
+          ctx.fillStyle = 'rgba(250, 204, 21, 0.55)';
+          ctx.fill();
+          ctx.lineWidth = 3.5;
+          ctx.strokeStyle = '#FFFFFF';
+          ctx.stroke();
+        }
+      }
+    }
+
     ctx.restore();
   }
 }
