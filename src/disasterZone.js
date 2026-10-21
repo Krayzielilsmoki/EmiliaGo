@@ -241,7 +241,7 @@ export class DisasterZoneGame {
 
     if (this.currentHazard.id === 'run') {
       const sb = this._lastSafeBounds;
-      const startX = sb ? sb.left - 40 : 40;
+      const startX = sb ? sb.left + 50 : 85;
       const groundY = sb ? sb.bottom - 45 : 660;
       this.tRex = {
         x: startX,
@@ -1173,16 +1173,29 @@ export class DisasterZoneGame {
         let minPlayerX = safeBounds.right;
 
         for (const pObj of activePlayers) {
-          runSpeed += pObj.motionSpeed || 0;
           const cols = pObj.colliders;
           if (cols) {
             for (const key of ['head', 'leftHand', 'rightHand', 'leftFoot', 'rightFoot']) {
               const col = cols[key];
               if (col && col.visibility > 0.25) {
                 minPlayerX = Math.min(minPlayerX, col.x - col.r);
+                runSpeed += Math.hypot(col.vx || 0, col.vy || 0);
               }
             }
           }
+          // Vertical hip oscillation from running in place
+          const lms = pObj.landmarksCanvas;
+          if (lms && lms[23] && lms[24]) {
+            const hipY = (lms[23].y + lms[24].y) / 2;
+            if (this._lastTRexHipY !== undefined) {
+              const dHip = Math.abs(hipY - this._lastTRexHipY);
+              runSpeed += dHip * 4.0;
+            }
+            this._lastTRexHipY = hipY;
+          }
+        }
+        if (pointer && pointer.active) {
+          runSpeed += 40;
         }
 
         if (minPlayerX > safeBounds.right - 40) {
@@ -1190,41 +1203,41 @@ export class DisasterZoneGame {
         }
 
         // Smooth running speed detection
-        this.tRex.runSpeedSmooth = this.tRex.runSpeedSmooth * 0.82 + runSpeed * 0.18;
+        this.tRex.runSpeedSmooth = this.tRex.runSpeedSmooth * 0.80 + runSpeed * 0.20;
         const spd = this.tRex.runSpeedSmooth;
-        const isRunning = spd > 26;
+        const isRunning = spd > 30;
         this.isPlayerSafe = isRunning;
 
         // Ground level for T-Rex
         this.tRex.y = safeBounds.bottom - 45;
 
         // Animate legs, mouth chomping, and flash timer
-        this.tRex.legPhase += dt * (spd > 15 ? 13 : 9);
-        this.tRex.mouthPhase += dt * (this.tRex.caughtPlayer ? 16 : 8);
+        this.tRex.legPhase += dt * (spd < 15 ? 16 : isRunning ? 14 : 10);
+        this.tRex.mouthPhase += dt * (spd < 15 ? 16 : 9);
 
         if (this.tRex.flashTimer > 0) {
           this.tRex.flashTimer = Math.max(0, this.tRex.flashTimer - dt);
         }
 
         // Dynamic T-Rex Movement:
-        // - Inactive / stopped (< 10): T-Rex charges fast towards player (+250 px/s)
-        // - Moving slowly (10 <= spd < 26): T-Rex still closes in steadily (+130 to +40 px/s)
-        // - Moderate effort (26 <= spd < 38): T-Rex is held at bay (-35 px/s)
-        // - Very active running (spd >= 38): T-Rex is pushed into fast retreat (-180 to -300 px/s)
-        const retreatX = safeBounds.left - 40;
+        // - Inactive / stopped (< 15): T-Rex charges fast towards player (+320 px/s)
+        // - Moving slowly (15 <= spd < 32): T-Rex still closes in steadily (+180 to +70 px/s)
+        // - Moderate effort (32 <= spd < 46): T-Rex is held at bay (-20 px/s)
+        // - Very active running (spd >= 46): T-Rex is pushed into fast retreat (-200 to -360 px/s)
+        const retreatX = safeBounds.left - 30;
         const snoutOffset = 135; // Snout tip reach relative to T-Rex anchor
 
         let dinoVelocity = 0;
-        if (spd < 10) {
-          dinoVelocity = 250;
-        } else if (spd < 26) {
-          const t = (spd - 10) / 16;
-          dinoVelocity = 130 * (1 - t) + 40;
-        } else if (spd < 38) {
-          dinoVelocity = -35;
+        if (spd < 15) {
+          dinoVelocity = 320;
+        } else if (spd < 32) {
+          const t = (spd - 15) / 17;
+          dinoVelocity = 180 * (1 - t) + 70;
+        } else if (spd < 46) {
+          dinoVelocity = -20;
         } else {
-          const boost = Math.min(120, (spd - 38) * 8);
-          dinoVelocity = -180 - boost;
+          const boost = Math.min(160, (spd - 46) * 6);
+          dinoVelocity = -200 - boost;
         }
 
         this.tRex.x += dinoVelocity * dt;
@@ -1382,6 +1395,7 @@ export class DisasterZoneGame {
         this._drawSpeedLines(ctx, canvasWidth, canvasHeight);
         if (this.tRex) {
           this._drawFriendlyTRex(ctx, safeBounds);
+          this._drawTRexChaseAlert(ctx, safeBounds);
         }
       }
 
@@ -1855,35 +1869,6 @@ export class DisasterZoneGame {
       ctx.lineWidth = 1.2;
       ctx.stroke();
     }
-
-    // 11. Water Height Gauge & Safe-Line Callout (Dynamically tracks player's head height)
-    const safeLineY = this._lastPlayerNeckY ? (this._lastPlayerNeckY + 25) : (ch * 0.48);
-    const isSafe = waterTop >= safeLineY;
-    ctx.save();
-    ctx.strokeStyle = isSafe ? 'rgba(74, 222, 128, 0.85)' : 'rgba(239, 68, 68, 0.90)';
-    ctx.lineWidth = 3.5;
-    ctx.setLineDash([12, 10]);
-    ctx.beginPath();
-    ctx.moveTo(35, safeLineY);
-    ctx.lineTo(cw - 35, safeLineY);
-    ctx.stroke();
-    ctx.setLineDash([]);
-
-    // Badge on Left side
-    ctx.fillStyle = isSafe ? 'rgba(22, 101, 52, 0.92)' : 'rgba(153, 27, 27, 0.92)';
-    ctx.strokeStyle = isSafe ? '#4ADE80' : '#FCA5A5';
-    ctx.lineWidth = 2.5;
-    ctx.beginPath();
-    ctx.roundRect(40, safeLineY - 20, 260, 40, 20);
-    ctx.fill();
-    ctx.stroke();
-
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.font = '900 14px system-ui, sans-serif';
-    ctx.fillStyle = '#FFFFFF';
-    ctx.fillText(isSafe ? '✅ SAFE (BELOW HEAD)' : '⚠️ MOVE HANDS TO TREAD WATER! 💦', 170, safeLineY);
-    ctx.restore();
 
     ctx.restore();
   }
@@ -3311,6 +3296,68 @@ export class DisasterZoneGame {
       ctx.fillText(`🔥 FEET IN LAVA! JUMP OR CLIMB! ${remain.toFixed(1)}s 🦘`, cx, pillY + 21);
     }
 
+    ctx.restore();
+  }
+
+  // Dynamic T-Rex chase prompt pill
+  _drawTRexChaseAlert(ctx, safeBounds) {
+    if (!this.tRex) return;
+    const spd = this.tRex.runSpeedSmooth;
+    const cx = (safeBounds.left + safeBounds.right) / 2;
+    const pillW = 480;
+    const pillH = 46;
+    const pillY = safeBounds.top + 72;
+
+    ctx.save();
+    if (spd < 15) {
+      // Urgent red alert: T-Rex is charging!
+      const pulse = Math.sin(this.animTime * 14) * 0.15;
+      ctx.fillStyle = `rgba(239, 68, 68, ${0.85 + pulse})`;
+      ctx.strokeStyle = '#FEF08A';
+      ctx.lineWidth = 3.5;
+      ctx.beginPath();
+      ctx.roundRect(cx - pillW / 2, pillY, pillW, pillH, pillH / 2);
+      ctx.fill();
+      ctx.stroke();
+
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillStyle = '#FFFFFF';
+      ctx.font = '900 18px system-ui, sans-serif';
+      ctx.fillText('🦖 T-REX IS CHARGING! RUN IN PLACE! 🏃‍♀️💨', cx, pillY + 22);
+
+    } else if (spd < 32) {
+      // Yellow alert: Dino is creeping closer
+      ctx.fillStyle = 'rgba(217, 119, 6, 0.90)';
+      ctx.strokeStyle = '#FDE68A';
+      ctx.lineWidth = 3.0;
+      ctx.beginPath();
+      ctx.roundRect(cx - pillW / 2, pillY, pillW, pillH, pillH / 2);
+      ctx.fill();
+      ctx.stroke();
+
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillStyle = '#FFFFFF';
+      ctx.font = '900 17px system-ui, sans-serif';
+      ctx.fillText('⚡ DINO CREEPING CLOSER! RUN FASTER! 🦖', cx, pillY + 22);
+
+    } else {
+      // Green encouragement: Dino retreating!
+      ctx.fillStyle = 'rgba(22, 101, 52, 0.88)';
+      ctx.strokeStyle = '#4ADE80';
+      ctx.lineWidth = 3.0;
+      ctx.beginPath();
+      ctx.roundRect(cx - pillW / 2, pillY, pillW, pillH, pillH / 2);
+      ctx.fill();
+      ctx.stroke();
+
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillStyle = '#86EFAC';
+      ctx.font = '900 17px system-ui, sans-serif';
+      ctx.fillText('💨 GREAT RUNNING! DINO IS RETREATING! 🦖💨', cx, pillY + 22);
+    }
     ctx.restore();
   }
 }
