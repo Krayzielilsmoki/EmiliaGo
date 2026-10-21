@@ -111,6 +111,54 @@ export class HatStackerGame {
     sound.playMonkeySound();
   }
 
+  getHeadCrown(pObj) {
+    if (!pObj) return null;
+    const lms = pObj.landmarks;
+    let lEye = null;
+    let rEye = null;
+    if (lms) {
+      for (const idx of [2, 1, 3]) {
+        if (lms[idx] && (lms[idx].visibility === undefined || lms[idx].visibility > 0.15)) {
+          lEye = lms[idx];
+          break;
+        }
+      }
+      for (const idx of [5, 4, 6]) {
+        if (lms[idx] && (lms[idx].visibility === undefined || lms[idx].visibility > 0.15)) {
+          rEye = lms[idx];
+          break;
+        }
+      }
+    }
+    if (lEye && rEye) {
+      const eyeSpan = Math.hypot(rEye.x - lEye.x, rEye.y - lEye.y);
+      const eyeCenterX = (lEye.x + rEye.x) * 0.5;
+      const eyeCenterY = (lEye.y + rEye.y) * 0.5;
+      const headAngle = Math.atan2(rEye.y - lEye.y, rEye.x - lEye.x);
+      const upX = Math.sin(headAngle);
+      const upY = -Math.cos(headAngle);
+      // Eye span * 2.10 places the base right at the crown/hairline of the head, well above eyes!
+      const crownDist = eyeSpan * 2.10;
+      const r = pObj.colliders && pObj.colliders.head ? pObj.colliders.head.r : eyeSpan * 1.1;
+      return {
+        x: eyeCenterX + upX * crownDist,
+        y: eyeCenterY + upY * crownDist,
+        r,
+        tilt: headAngle,
+      };
+    }
+    if (pObj.colliders && pObj.colliders.head && pObj.colliders.head.visibility > 0.25) {
+      const h = pObj.colliders.head;
+      return {
+        x: h.x,
+        y: h.y - h.r * 0.95, // Top crown of head, clear of forehead and eyes
+        r: h.r,
+        tilt: 0,
+      };
+    }
+    return null;
+  }
+
   update(dt, safeBounds, player, pointer, onMilestone) {
     this.safeBounds = safeBounds;
     this.swayPhase += dt * 3.2;
@@ -131,17 +179,18 @@ export class HatStackerGame {
     // Determine primary Head anchor (plus all player head anchors for 2P catching!)
     const headAnchors = [];
     for (const pObj of activePlayers) {
-      if (pObj.colliders && pObj.colliders.head && pObj.colliders.head.visibility > 0.3) {
-        const h = pObj.colliders.head;
+      const crown = this.getHeadCrown(pObj);
+      if (crown) {
         headAnchors.push({
-          x: h.x,
-          y: h.y - h.r * 0.40, // Lowered ~10% so hats sit naturally on forehead
-          r: h.r * 1.15,
+          x: crown.x,
+          y: crown.y,
+          r: crown.r * 1.15,
+          tilt: crown.tilt,
         });
       }
     }
     if (headAnchors.length === 0 && pointer && pointer.active) {
-      headAnchors.push({ x: pointer.x, y: pointer.y, r: 58 });
+      headAnchors.push({ x: pointer.x, y: pointer.y - 45, r: 58, tilt: 0 });
     }
 
     const headAnchor = headAnchors[0] || null;
@@ -150,7 +199,8 @@ export class HatStackerGame {
       const dx = headAnchor.x - this.lastHeadX;
       this.lastHeadX = headAnchor.x;
       const targetTilt = Math.max(-0.28, Math.min(0.28, dx * 0.008));
-      this.headTilt = this.headTilt * 0.85 + targetTilt * 0.15;
+      const combinedTilt = Math.max(-0.35, Math.min(0.35, (headAnchor.tilt || 0) * 0.75 + targetTilt));
+      this.headTilt = this.headTilt * 0.85 + combinedTilt * 0.15;
     }
 
     // Compute the top of the current hat stack
@@ -452,11 +502,11 @@ export class HatStackerGame {
     }
 
     let baseHead = null;
-    if (player && player.detected && player.colliders && player.colliders.head) {
-      const h = player.colliders.head;
-      baseHead = { x: h.x, y: h.y - h.r * 0.40, r: h.r }; // Lowered ~10% so hats sit naturally on forehead
-    } else if (pointer && pointer.active) {
-      baseHead = { x: pointer.x, y: pointer.y - 25, r: 52 };
+    if (player && player.detected) {
+      baseHead = this.getHeadCrown(player);
+    }
+    if (!baseHead && pointer && pointer.active) {
+      baseHead = { x: pointer.x, y: pointer.y - 45, r: 52 };
     }
 
     if (baseHead && this.stackedHats.length > 0) {

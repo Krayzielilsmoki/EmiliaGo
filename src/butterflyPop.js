@@ -1,5 +1,5 @@
 // Game 3: Butterfly & Bubble Pop for EmiliaGO! (1P & 2P Support)
-// Pop bubbles & catch butterflies, bounce the 3-hit Basketball for +5 points,
+// Pop bubbles & catch butterflies, bounce the 3-hit Golden Balloon for +5 points,
 // and avoid the High-Visibility Buzzing Bumblebee!
 import { sound } from './sound.js';
 import { settings } from './settings.js';
@@ -23,7 +23,7 @@ export class ButterflyPopGame {
     this.bestScore = settings.data.bestButterflies || 0;
     this.spawnTimer = 0;
     this.beeTimer = 8.5;
-    this.basketballTimer = 6.5;
+    this.goldenBalloonTimer = 6.5;
     this.time = 0;
 
     this.onMilestone = null;
@@ -37,7 +37,7 @@ export class ButterflyPopGame {
     this.score = 0;
     this.spawnTimer = 0.2;
     this.beeTimer = 8.5;
-    this.basketballTimer = 6.5;
+    this.goldenBalloonTimer = 6.5;
     sound.updateBeeBuzz(false);
   }
 
@@ -109,15 +109,15 @@ export class ButterflyPopGame {
     }
   }
 
-  spawnBasketball(safeBounds) {
-    if (this.targets.some((t) => t.kind === 'basketball')) return;
+  spawnGoldenBalloon(safeBounds) {
+    if (this.targets.some((t) => t.kind === 'goldenBalloon')) return;
     if (this.targets.length >= MAX_ACTIVE_TARGETS + 1) return;
     const x =
       safeBounds.left +
       100 +
       Math.random() * Math.max(100, safeBounds.width - 200);
     this.targets.push({
-      kind: 'basketball',
+      kind: 'goldenBalloon',
       x,
       y: safeBounds.top + 80,
       vx: (Math.random() - 0.5) * 140,
@@ -164,16 +164,16 @@ export class ButterflyPopGame {
     this.time += dt;
     this.spawnTimer -= dt;
     this.beeTimer -= dt;
-    this.basketballTimer -= dt;
+    this.goldenBalloonTimer -= dt;
 
     if (this.spawnTimer <= 0 && this.targets.length < MAX_ACTIVE_TARGETS) {
       this.spawnTarget(safeBounds);
       this.spawnTimer = 1.15;
     }
 
-    if (this.basketballTimer <= 0) {
-      this.spawnBasketball(safeBounds);
-      this.basketballTimer = 11.0 + Math.random() * 4;
+    if (this.goldenBalloonTimer <= 0) {
+      this.spawnGoldenBalloon(safeBounds);
+      this.goldenBalloonTimer = 11.0 + Math.random() * 4;
     }
 
     if (this.beeTimer <= 0) {
@@ -255,13 +255,13 @@ export class ButterflyPopGame {
           this.targets.splice(i, 1);
           continue;
         }
-      } else if (t.kind === 'basketball') {
+      } else if (t.kind === 'goldenBalloon') {
         if (t.hitCooldown > 0) t.hitCooldown -= dt;
         if (t.squash > 0) t.squash = Math.max(0, t.squash - dt * 3.5);
-        t.vy += 260 * dt;
+        t.vy += 180 * dt; // buoyant floaty celebration balloon physics
         t.x += t.vx * dt;
         t.y += t.vy * dt;
-        t.angle += t.vx * 0.004 * dt;
+        t.angle += t.vx * 0.003 * dt;
 
         if (t.x - t.r < safeBounds.left) {
           t.x = safeBounds.left + t.r;
@@ -276,7 +276,7 @@ export class ButterflyPopGame {
         }
         if (t.y + t.r > safeBounds.bottom) {
           t.y = safeBounds.bottom - t.r;
-          t.vy = -340;
+          t.vy = -300;
           t.squash = 0.7;
           sound.playFloorDrop(true);
         }
@@ -377,8 +377,8 @@ export class ButterflyPopGame {
           continue;
         }
 
-        // Case B: 3-Hit Bouncy Basketball (+5 Bonus Points on 3rd hit!)
-        if (t.kind === 'basketball') {
+        // Case B: 3-Hit Bouncy Golden Balloon (+5 Bonus Points on 3rd hit!)
+        if (t.kind === 'goldenBalloon') {
           if (t.hitCooldown > 0) continue;
           t.hitCooldown = 0.35;
           t.hitsLeft--;
@@ -386,15 +386,15 @@ export class ButterflyPopGame {
 
           if (t.hitsLeft > 0) {
             const dx = t.x - hitCol.x;
-            t.vx = (dx >= 0 ? 1 : -1) * (130 + Math.random() * 80);
-            t.vy = -390;
+            t.vx = (dx >= 0 ? 1 : -1) * (140 + Math.random() * 80);
+            t.vy = -380;
             sound.playBalloonHit(4 - t.hitsLeft);
-            this.spawnPopParticles(t.x, t.y, '#FB923C');
+            this.spawnPopParticles(t.x, t.y, '#FACC15');
             this.spawnFloatingText(
               t.x,
-              t.y - 40,
-              `BOUNCE! 🏀 (${t.hitsLeft} MORE!)`,
-              '#FDBA74'
+              t.y - 45,
+              `GOLDEN BOUNCE! ✨ (${t.hitsLeft} MORE!)`,
+              '#FEF08A'
             );
           } else {
             const prevScore = this.score;
@@ -406,7 +406,7 @@ export class ButterflyPopGame {
             }
             sound.playFanfare();
             this.spawnPopParticles(t.x, t.y, '#FACC15');
-            this.spawnFloatingText(t.x, t.y - 45, 'SLAM DUNK! 🏀 +5 POINTS!', '#FACC15');
+            this.spawnFloatingText(t.x, t.y - 45, 'GOLDEN BALLOON POP! 🎈✨ +5 POINTS!', '#FACC15');
             this.targets.splice(i, 1);
 
             const everyN = settings.data.soundboardEveryN || 10;
@@ -515,36 +515,38 @@ export class ButterflyPopGame {
         this.drawButterfly(ctx, t);
       } else if (t.kind === 'ladybug') {
         this.drawLadybug(ctx, t);
-      } else if (t.kind === 'basketball') {
-        this.drawBasketball(ctx, t);
+      } else if (t.kind === 'goldenBalloon') {
+        this.drawGoldenBalloon(ctx, t);
       } else if (t.kind === 'bee') {
         this.drawBee(ctx, t);
       }
     }
 
-    for (const p of this.particles) {
-      ctx.save();
-      ctx.globalAlpha = Math.max(0, p.life / p.maxLife);
-      if (p.kind === 'fairydust') {
-        ctx.strokeStyle = p.color;
-        ctx.lineWidth = 2;
-        ctx.beginPath();
-        ctx.moveTo(p.x - p.r * 1.6, p.y);
-        ctx.lineTo(p.x + p.r * 1.6, p.y);
-        ctx.moveTo(p.x, p.y - p.r * 1.6);
-        ctx.lineTo(p.x, p.y + p.r * 1.6);
-        ctx.stroke();
-        ctx.fillStyle = '#FFFFFF';
-        ctx.beginPath();
-        ctx.arc(p.x, p.y, p.r * 0.45, 0, Math.PI * 2);
-        ctx.fill();
-      } else {
-        ctx.fillStyle = p.color;
-        ctx.beginPath();
-        ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
-        ctx.fill();
+    if (this.particles.length > 0) {
+      for (const p of this.particles) {
+        ctx.save();
+        ctx.globalAlpha = Math.max(0, p.life / p.maxLife);
+        if (p.kind === 'fairydust') {
+          ctx.strokeStyle = p.color;
+          ctx.lineWidth = 2;
+          ctx.beginPath();
+          ctx.moveTo(p.x - p.r * 1.6, p.y);
+          ctx.lineTo(p.x + p.r * 1.6, p.y);
+          ctx.moveTo(p.x, p.y - p.r * 1.6);
+          ctx.lineTo(p.x, p.y + p.r * 1.6);
+          ctx.stroke();
+          ctx.fillStyle = '#FFFFFF';
+          ctx.beginPath();
+          ctx.arc(p.x, p.y, p.r * 0.45, 0, Math.PI * 2);
+          ctx.fill();
+        } else {
+          ctx.fillStyle = p.color;
+          ctx.beginPath();
+          ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
+          ctx.fill();
+        }
+        ctx.restore();
       }
-      ctx.restore();
     }
 
     for (const ft of this.floatingTexts) {
@@ -561,52 +563,96 @@ export class ButterflyPopGame {
     }
   }
 
-  drawBasketball(ctx, b) {
+  drawGoldenBalloon(ctx, b) {
     ctx.save();
     ctx.translate(b.x, b.y);
-    const wobble = Math.sin(b.squash * Math.PI * 2) * b.squash * 0.2;
+
+    const wobble = Math.sin(b.squash * Math.PI * 2) * b.squash * 0.22;
     ctx.scale(1 + wobble, 1 - wobble);
+    ctx.rotate(b.angle || 0);
 
-    const grad = ctx.createRadialGradient(-b.r * 0.3, -b.r * 0.3, b.r * 0.1, 0, 0, b.r);
-    grad.addColorStop(0, '#FDBA74');
-    grad.addColorStop(0.45, '#F97316');
-    grad.addColorStop(1, '#9A3412');
+    const r = b.r;
 
-    ctx.beginPath();
-    ctx.arc(0, 0, b.r, 0, Math.PI * 2);
-    ctx.fillStyle = grad;
-    ctx.fill();
-    ctx.lineWidth = 3.5;
-    ctx.strokeStyle = '#1E293B';
-    ctx.stroke();
-
-    ctx.beginPath();
-    ctx.moveTo(-b.r, 0);
-    ctx.lineTo(b.r, 0);
-    ctx.moveTo(0, -b.r);
-    ctx.lineTo(0, b.r);
-    ctx.stroke();
-
-    ctx.beginPath();
-    ctx.arc(-b.r * 0.65, 0, b.r * 0.7, -0.8, 0.8);
-    ctx.stroke();
-    ctx.beginPath();
-    ctx.arc(b.r * 0.65, 0, b.r * 0.7, Math.PI - 0.8, Math.PI + 0.8);
-    ctx.stroke();
-
-    ctx.fillStyle = 'rgba(15, 23, 42, 0.88)';
-    ctx.strokeStyle = '#FACC15';
+    // 1. Festive Golden Curly Ribbon / String dangling below
+    ctx.save();
+    ctx.strokeStyle = '#FEF08A';
     ctx.lineWidth = 2.5;
     ctx.beginPath();
-    ctx.roundRect(-36, -15, 72, 30, 15);
+    ctx.moveTo(0, r + 6);
+    ctx.bezierCurveTo(-14, r + 18, 14, r + 30, -6, r + 42);
+    ctx.stroke();
+    ctx.restore();
+
+    // 2. Balloon Knot at bottom
+    ctx.fillStyle = '#D97706';
+    ctx.strokeStyle = '#78350F';
+    ctx.lineWidth = 2.5;
+    ctx.beginPath();
+    ctx.moveTo(-7, r + 6);
+    ctx.lineTo(7, r + 6);
+    ctx.lineTo(0, r);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+
+    // 3. Shimmering Golden Balloon Body (classic tear-drop / oval)
+    const goldGrad = ctx.createRadialGradient(-r * 0.32, -r * 0.35, 6, 0, 0, r);
+    goldGrad.addColorStop(0, '#FFFBEB'); // Pure white-gold sparkle
+    goldGrad.addColorStop(0.25, '#FEF08A'); // Pale golden shimmer
+    goldGrad.addColorStop(0.65, '#FACC15'); // Bright royal gold
+    goldGrad.addColorStop(0.92, '#EAB308'); // Deep warm gold
+    goldGrad.addColorStop(1, '#B45309'); // Rich amber rim
+
+    ctx.fillStyle = goldGrad;
+    ctx.strokeStyle = '#78350F';
+    ctx.lineWidth = 3.5;
+    ctx.beginPath();
+    ctx.ellipse(0, 0, r * 0.94, r, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+
+    // 4. Glossy Specular Balloon Highlight (curved crescent on upper left)
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.78)';
+    ctx.lineWidth = 4;
+    ctx.lineCap = 'round';
+    ctx.beginPath();
+    ctx.ellipse(-r * 0.38, -r * 0.38, r * 0.42, r * 0.24, -0.65, 0.75 * Math.PI, 1.4 * Math.PI);
+    ctx.stroke();
+
+    // Secondary soft glow dot
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.85)';
+    ctx.beginPath();
+    ctx.arc(-r * 0.52, -r * 0.16, 3.5, 0, Math.PI * 2);
+    ctx.fill();
+
+    // 5. Sparkling Stars on the gold surface
+    const drawStar = (sx, sy, sr) => {
+      ctx.fillStyle = '#FFFFFF';
+      ctx.beginPath();
+      ctx.moveTo(sx, sy - sr);
+      ctx.quadraticCurveTo(sx, sy, sx + sr, sy);
+      ctx.quadraticCurveTo(sx, sy, sx, sy + sr);
+      ctx.quadraticCurveTo(sx, sy, sx - sr, sy);
+      ctx.quadraticCurveTo(sx, sy, sx, sy - sr);
+      ctx.fill();
+    };
+    drawStar(r * 0.38, -r * 0.32, 7);
+    drawStar(r * 0.46, r * 0.25, 5);
+
+    // 6. Hits Badge Pill in center
+    ctx.fillStyle = 'rgba(15, 23, 42, 0.82)';
+    ctx.strokeStyle = '#FEF08A';
+    ctx.lineWidth = 2.5;
+    ctx.beginPath();
+    ctx.roundRect(-38, -16, 76, 32, 16);
     ctx.fill();
     ctx.stroke();
 
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     ctx.fillStyle = '#FEF08A';
-    ctx.font = '900 15px system-ui, sans-serif';
-    ctx.fillText(`🏀 ×${b.hitsLeft}`, 0, 1);
+    ctx.font = '900 16px system-ui, sans-serif';
+    ctx.fillText(`✨ ×${b.hitsLeft}`, 0, 1);
 
     ctx.restore();
   }
@@ -937,101 +983,186 @@ export class ButterflyPopGame {
     ctx.scale(facing, 1);
 
     const r = lb.r * 0.85;
-    const flap = Math.sin(lb.flapPhase || 0) * 8;
+    const flap = Math.sin(lb.flapPhase || 0);
 
-    // 1. Flapping Translucent Wings on sides
+    // 1. Cute Tiny Black Cartoon Legs (3 upper, 3 lower)
+    ctx.strokeStyle = '#0F172A';
+    ctx.lineWidth = 3;
+    ctx.lineCap = 'round';
+    [-r * 0.35, 0, r * 0.35].forEach((lx, i) => {
+      const legWiggle = Math.sin((lb.flapPhase || 0) + i * 1.5) * 2.5;
+      // Top legs
+      ctx.beginPath();
+      ctx.moveTo(lx, -r * 0.55);
+      ctx.lineTo(lx - 5, -r * 0.95 + legWiggle);
+      ctx.stroke();
+      // Bottom legs
+      ctx.beginPath();
+      ctx.moveTo(lx, r * 0.55);
+      ctx.lineTo(lx - 5, r * 0.95 - legWiggle);
+      ctx.stroke();
+    });
+
+    // 2. Flapping Translucent Wings (fluttering out above and below the carapace)
     ctx.save();
-    ctx.fillStyle = 'rgba(255, 255, 255, 0.45)';
-    ctx.strokeStyle = 'rgba(255, 255, 255, 0.85)';
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.55)';
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.9)';
     ctx.lineWidth = 2;
+    // Upper wing
     ctx.beginPath();
-    ctx.ellipse(-r * 0.3, -r * 0.45 + flap * 0.3, r * 0.5, r * 0.28, -0.4, 0, Math.PI * 2);
+    ctx.ellipse(
+      -r * 0.15,
+      -r * 0.72 + flap * 5,
+      r * 0.55,
+      r * 0.28,
+      -0.3 + flap * 0.12,
+      0,
+      Math.PI * 2
+    );
     ctx.fill();
     ctx.stroke();
+    // Lower wing
     ctx.beginPath();
-    ctx.ellipse(r * 0.3, -r * 0.45 - flap * 0.3, r * 0.5, r * 0.28, 0.4, 0, Math.PI * 2);
+    ctx.ellipse(
+      -r * 0.15,
+      r * 0.72 - flap * 5,
+      r * 0.55,
+      r * 0.28,
+      0.3 - flap * 0.12,
+      0,
+      Math.PI * 2
+    );
     ctx.fill();
     ctx.stroke();
     ctx.restore();
 
-    // 2. Bright Red Dome Shell
-    const shellGrad = ctx.createRadialGradient(-r * 0.25, -r * 0.25, 4, 0, 0, r);
-    shellGrad.addColorStop(0, '#F87171');
-    shellGrad.addColorStop(0.35, '#EF4444');
-    shellGrad.addColorStop(1, '#991B1B');
+    // 3. Round Red Shell / Elytra (Divided horizontally along spine!)
+    const wingSpread = 1.5; // slight flight separation along horizontal midline
+    
+    // Top Wing Half (y <= 0)
+    const shellGradTop = ctx.createRadialGradient(-r * 0.2, -r * 0.4, 4, 0, -r * 0.2, r * 0.9);
+    shellGradTop.addColorStop(0, '#F87171');
+    shellGradTop.addColorStop(0.4, '#EF4444');
+    shellGradTop.addColorStop(1, '#991B1B');
 
-    ctx.fillStyle = shellGrad;
+    ctx.fillStyle = shellGradTop;
     ctx.strokeStyle = '#0F172A';
     ctx.lineWidth = 3.5;
     ctx.beginPath();
-    ctx.arc(0, 0, r, 0, Math.PI * 2);
+    ctx.arc(0, -wingSpread, r, Math.PI, Math.PI * 2);
+    ctx.closePath();
     ctx.fill();
     ctx.stroke();
 
-    // Wing seam down center
-    ctx.strokeStyle = '#0F172A';
-    ctx.lineWidth = 3;
+    // Bottom Wing Half (y >= 0)
+    const shellGradBottom = ctx.createRadialGradient(-r * 0.2, r * 0.4, 4, 0, r * 0.2, r * 0.9);
+    shellGradBottom.addColorStop(0, '#F87171');
+    shellGradBottom.addColorStop(0.4, '#EF4444');
+    shellGradBottom.addColorStop(1, '#991B1B');
+
+    ctx.fillStyle = shellGradBottom;
     ctx.beginPath();
-    ctx.moveTo(0, -r);
-    ctx.lineTo(0, r);
+    ctx.arc(0, wingSpread, r, 0, Math.PI);
+    ctx.closePath();
+    ctx.fill();
     ctx.stroke();
 
-    // Cute Black Polka Dots
+    // Horizontal Wing Seam Spine (along body length towards head at +x)
+    ctx.strokeStyle = '#0F172A';
+    ctx.lineWidth = 3.5;
+    ctx.beginPath();
+    ctx.moveTo(-r, 0);
+    ctx.lineTo(r * 0.48, 0);
+    ctx.stroke();
+
+    // Cute Black Polka Dots (symmetrically placed on top & bottom wings!)
     ctx.fillStyle = '#0F172A';
-    [
-      [-r * 0.45, -r * 0.25, 5],
-      [r * 0.45, -r * 0.25, 5],
-      [-r * 0.38, r * 0.35, 5],
-      [r * 0.38, r * 0.35, 5],
-      [-r * 0.65, 0, 4],
-      [r * 0.65, 0, 4],
-    ].forEach(([dx, dy, dr]) => {
+    const dots = [
+      // Top wing dots
+      [-r * 0.48, -r * 0.45, 5],
+      [-r * 0.08, -r * 0.58, 5],
+      [r * 0.22, -r * 0.35, 4.5],
+      // Bottom wing dots
+      [-r * 0.48, r * 0.45, 5],
+      [-r * 0.08, r * 0.58, 5],
+      [r * 0.22, r * 0.35, 4.5],
+      // Center rear dot
+      [-r * 0.72, 0, 4.5],
+    ];
+    dots.forEach(([dx, dy, dr]) => {
       ctx.beginPath();
       ctx.arc(dx, dy, dr, 0, Math.PI * 2);
       ctx.fill();
     });
 
-    // Glossy Specular Shell Glare Arc
-    ctx.strokeStyle = 'rgba(255, 255, 255, 0.55)';
+    // Glossy Specular Highlights on upper wing
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.65)';
     ctx.lineWidth = 3;
+    ctx.lineCap = 'round';
     ctx.beginPath();
-    ctx.ellipse(-r * 0.35, -r * 0.35, r * 0.35, r * 0.2, -0.6, 0.7 * Math.PI, 1.4 * Math.PI);
+    ctx.ellipse(-r * 0.28, -r * 0.45, r * 0.35, r * 0.16, -0.3, 0.8 * Math.PI, 1.4 * Math.PI);
     ctx.stroke();
 
-    // 3. Cute Black Head with Smiling Eyes
+    // 4. Black Pronotum / Collar (between shell and head)
     ctx.fillStyle = '#0F172A';
     ctx.beginPath();
-    ctx.arc(r * 0.72, 0, r * 0.38, 0, Math.PI * 2);
+    ctx.ellipse(r * 0.48, 0, r * 0.24, r * 0.52, 0, -Math.PI * 0.5, Math.PI * 0.5);
     ctx.fill();
-    ctx.strokeStyle = '#0F172A';
-    ctx.lineWidth = 2.5;
     ctx.stroke();
 
-    // Cartoon Smiling Eye
+    // White accent spots on ladybug collar
     ctx.fillStyle = '#FFFFFF';
     ctx.beginPath();
-    ctx.arc(r * 0.78, -4, 4.5, 0, Math.PI * 2);
+    ctx.ellipse(r * 0.44, -r * 0.26, 4, 3, 0, 0, Math.PI * 2);
     ctx.fill();
+    ctx.beginPath();
+    ctx.ellipse(r * 0.44, r * 0.26, 4, 3, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    // 5. Black Head at Front (+x)
     ctx.fillStyle = '#0F172A';
     ctx.beginPath();
-    ctx.arc(r * 0.82, -4, 2.5, 0, Math.PI * 2);
+    ctx.arc(r * 0.72, 0, r * 0.32, 0, Math.PI * 2);
     ctx.fill();
-    ctx.fillStyle = '#FFFFFF';
-    ctx.beginPath();
-    ctx.arc(r * 0.84, -5, 1.2, 0, Math.PI * 2);
-    ctx.fill();
+    ctx.stroke();
 
-    // Perky Curled Antennae
+    // 6. Two Cute Cartoon Eyes (facing forward!)
+    [-1, 1].forEach((dir) => {
+      const eyeY = dir * (r * 0.18);
+      // White eye
+      ctx.fillStyle = '#FFFFFF';
+      ctx.beginPath();
+      ctx.arc(r * 0.76, eyeY, 5, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = '#0F172A';
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+      // Pupil looking forward
+      ctx.fillStyle = '#0F172A';
+      ctx.beginPath();
+      ctx.arc(r * 0.80, eyeY, 2.8, 0, Math.PI * 2);
+      ctx.fill();
+      // White sparkle
+      ctx.fillStyle = '#FFFFFF';
+      ctx.beginPath();
+      ctx.arc(r * 0.81, eyeY - 1.2, 1.2, 0, Math.PI * 2);
+      ctx.fill();
+    });
+
+    // 7. Cute Antennae curving forward with little round knobs
     ctx.strokeStyle = '#0F172A';
     ctx.lineWidth = 2.5;
-    ctx.beginPath();
-    ctx.moveTo(r * 0.85, -8);
-    ctx.quadraticCurveTo(r * 1.15, -18, r * 1.25, -15);
-    ctx.stroke();
-    ctx.fillStyle = '#DC2626';
-    ctx.beginPath();
-    ctx.arc(r * 1.25, -15, 2.5, 0, Math.PI * 2);
-    ctx.fill();
+    [-1, 1].forEach((dir) => {
+      ctx.beginPath();
+      ctx.moveTo(r * 0.88, dir * 4);
+      ctx.quadraticCurveTo(r * 1.15, dir * 14, r * 1.28, dir * 8);
+      ctx.stroke();
+      // Antenna tip knob
+      ctx.fillStyle = '#0F172A';
+      ctx.beginPath();
+      ctx.arc(r * 1.28, dir * 8, 3, 0, Math.PI * 2);
+      ctx.fill();
+    });
 
     ctx.restore();
   }
