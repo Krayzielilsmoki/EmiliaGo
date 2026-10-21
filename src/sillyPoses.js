@@ -1120,12 +1120,12 @@ export class SillyPosesGame {
       hands.push(pointer);
     }
 
-    // A. LIGHTBOX VIEW (Single Photo Full View)
+    // A. FULL SCREEN PICTURE VIEWER INTERACTION
     if (this.selectedPhoto !== null) {
       // 1. Back to Grid Button (top-left)
-      const backX = safeBounds.left + 72;
+      const backX = safeBounds.left + 54;
       const backY = safeBounds.top + 36;
-      const backR = 36;
+      const backR = 34;
 
       if (
         pointer &&
@@ -1165,9 +1165,9 @@ export class SillyPosesGame {
       }
 
       // 2. Delete Photo Button (top-right)
-      const delX = safeBounds.right - 72;
+      const delX = safeBounds.right - 54;
       const delY = safeBounds.top + 36;
-      const delR = 36;
+      const delR = 34;
 
       if (
         pointer &&
@@ -1218,13 +1218,13 @@ export class SillyPosesGame {
         if (this.galleryDeleteHold === 0) this._galleryDeleteTick = -1;
       }
 
-      // 3. Prev / Next arrows in Lightbox (if multiple photos)
+      // 3. Side Navigation Arrows in Full Screen (if multiple photos)
       if (this.galleryPhotos.length > 1) {
         const curIdx = this.galleryPhotos.findIndex((p) => p.id === this.selectedPhoto.id);
         const midY = (safeBounds.top + safeBounds.bottom) / 2;
-        const arrowLeftX = safeBounds.left + 50;
-        const arrowRightX = safeBounds.right - 50;
-        const arrowR = 40;
+        const arrowLeftX = safeBounds.left + 46;
+        const arrowRightX = safeBounds.right - 46;
+        const arrowR = 36;
 
         // Prev Arrow
         if (curIdx > 0) {
@@ -1460,45 +1460,36 @@ export class SillyPosesGame {
 
   _renderGalleryOverlay(ctx, cw, ch, safeBounds, player) {
     ctx.save();
-    // Dark Backdrop
-    ctx.fillStyle = 'rgba(15, 23, 42, 0.95)';
-    ctx.fillRect(0, 0, cw, ch);
 
-    // Top Title
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.font = '900 32px system-ui, sans-serif';
-    ctx.fillStyle = '#FEF08A';
-    ctx.fillText('🖼️ SILLY PHOTOS GALLERY', cw / 2, safeBounds.top + 32);
-
-    ctx.font = '700 15px system-ui, sans-serif';
-    ctx.fillStyle = '#94A3B8';
-    ctx.fillText(
-      `${this.galleryPhotos.length} Saved Snap${this.galleryPhotos.length === 1 ? '' : 's'}`,
-      cw / 2,
-      safeBounds.top + 58
-    );
-
-    // A. LIGHTBOX VIEW
+    // A. FULL SCREEN PICTURE VIEWER
     if (this.selectedPhoto !== null) {
       const p = this.selectedPhoto;
 
-      // 1. Large Center Polaroid
-      const pw = Math.min(840, cw * 0.72);
-      const ph = pw * (9 / 16);
+      // Deep cinematic dark backdrop
+      ctx.fillStyle = '#050811';
+      ctx.fillRect(0, 0, cw, ch);
+
+      // Maximize to true full screen (16:9 aspect ratio)
+      const maxW = cw * 0.96;
+      const maxH = ch * 0.94;
+      let pw = maxW;
+      let ph = pw * (9 / 16);
+      if (ph > maxH) {
+        ph = maxH;
+        pw = ph * (16 / 9);
+      }
       const photoCX = cw / 2;
-      const photoCY = (safeBounds.top + safeBounds.bottom) / 2 + 10;
+      const photoCY = ch / 2;
 
       ctx.save();
       ctx.translate(photoCX, photoCY);
 
-      // White frame with clean shadow
-      ctx.fillStyle = '#FFFFFF';
+      // Rounded photo region
       ctx.beginPath();
-      ctx.roundRect(-pw / 2 - 12, -ph / 2 - 12, pw + 24, ph + 44, 18);
-      ctx.fill();
+      ctx.roundRect(-pw / 2, -ph / 2, pw, ph, 18);
+      ctx.save();
+      ctx.clip();
 
-      // Image
       if (p._img && p._img.complete && p._img.naturalWidth > 0) {
         ctx.drawImage(p._img, -pw / 2, -ph / 2, pw, ph);
       } else {
@@ -1507,31 +1498,48 @@ export class SillyPosesGame {
           img.src = p.dataUrl;
           p._img = img;
         }
-        ctx.fillStyle = '#1E293B';
+        ctx.fillStyle = '#0F172A';
         ctx.fillRect(-pw / 2, -ph / 2, pw, ph);
       }
-
-      ctx.strokeStyle = '#CBD5E1';
-      ctx.lineWidth = 2;
-      ctx.strokeRect(-pw / 2, -ph / 2, pw, ph);
-
-      // Bottom banner on polaroid rim
-      ctx.fillStyle = '#0F172A';
-      ctx.font = '900 18px system-ui, cursive, sans-serif';
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
-      ctx.fillText(`📸 ${p.poseName} • ${p.dateStr}`, 0, ph / 2 + 18);
       ctx.restore();
 
-      // 2. Back Button (top-left)
-      const backX = safeBounds.left + 72;
+      // Crisp clean border
+      ctx.beginPath();
+      ctx.roundRect(-pw / 2, -ph / 2, pw, ph, 18);
+      ctx.lineWidth = 4;
+      ctx.strokeStyle = '#FFFFFF';
+      ctx.stroke();
+
+      ctx.restore();
+
+      // Floating Bottom Detail Pill
+      const curIdx = this.galleryPhotos.findIndex((item) => item.id === p.id);
+      const pillText = `📸 ${p.poseName} • ${p.dateStr}  (${curIdx + 1} of ${this.galleryPhotos.length})`;
+      ctx.save();
+      ctx.font = '900 16px system-ui, sans-serif';
+      const tw = ctx.measureText(pillText).width + 36;
+      ctx.fillStyle = 'rgba(15, 23, 42, 0.85)';
+      ctx.strokeStyle = '#FEF08A';
+      ctx.lineWidth = 2.5;
+      ctx.beginPath();
+      ctx.roundRect(cw / 2 - tw / 2, ch / 2 + ph / 2 - 40, tw, 30, 15);
+      ctx.fill();
+      ctx.stroke();
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillStyle = '#FFFFFF';
+      ctx.fillText(pillText, cw / 2, ch / 2 + ph / 2 - 25);
+      ctx.restore();
+
+      // 1. Floating Back Button (top-left)
+      const backX = safeBounds.left + 54;
       const backY = safeBounds.top + 36;
-      const backR = 36;
+      const backR = 34;
       ctx.save();
       ctx.translate(backX, backY);
       ctx.beginPath();
       ctx.arc(0, 0, backR, 0, Math.PI * 2);
-      ctx.fillStyle = '#3B82F6';
+      ctx.fillStyle = '#2563EB';
       ctx.fill();
       ctx.lineWidth = 3.5;
       ctx.strokeStyle = '#FFFFFF';
@@ -1539,7 +1547,7 @@ export class SillyPosesGame {
 
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
-      ctx.font = '900 15px system-ui, sans-serif';
+      ctx.font = '900 14px system-ui, sans-serif';
       ctx.fillStyle = '#FFFFFF';
       ctx.fillText('🔙 BACK', 0, 1);
 
@@ -1553,15 +1561,15 @@ export class SillyPosesGame {
       }
       ctx.restore();
 
-      // 3. Delete Button (top-right)
-      const delX = safeBounds.right - 72;
+      // 2. Floating Delete Button (top-right)
+      const delX = safeBounds.right - 54;
       const delY = safeBounds.top + 36;
-      const delR = 36;
+      const delR = 34;
       ctx.save();
       ctx.translate(delX, delY);
       ctx.beginPath();
       ctx.arc(0, 0, delR, 0, Math.PI * 2);
-      ctx.fillStyle = '#EF4444';
+      ctx.fillStyle = '#DC2626';
       ctx.fill();
       ctx.lineWidth = 3.5;
       ctx.strokeStyle = '#FFFFFF';
@@ -1583,23 +1591,22 @@ export class SillyPosesGame {
       }
       ctx.restore();
 
-      // 4. Side Arrows in Lightbox (if multiple photos)
+      // 3. Side Navigation Arrows in Full Screen (if multiple photos)
       if (this.galleryPhotos.length > 1) {
-        const curIdx = this.galleryPhotos.findIndex((item) => item.id === p.id);
         const midY = (safeBounds.top + safeBounds.bottom) / 2;
-        const arrowLeftX = safeBounds.left + 50;
-        const arrowRightX = safeBounds.right - 50;
-        const arrowR = 38;
+        const arrowLeftX = safeBounds.left + 46;
+        const arrowRightX = safeBounds.right - 46;
+        const arrowR = 36;
 
         if (curIdx > 0) {
           ctx.save();
           ctx.translate(arrowLeftX, midY);
           ctx.beginPath();
           ctx.arc(0, 0, arrowR, 0, Math.PI * 2);
-          ctx.fillStyle = '#1E293B';
+          ctx.fillStyle = 'rgba(15, 23, 42, 0.88)';
           ctx.fill();
           ctx.lineWidth = 3;
-          ctx.strokeStyle = '#94A3B8';
+          ctx.strokeStyle = '#FEF08A';
           ctx.stroke();
           ctx.fillStyle = '#FFFFFF';
           ctx.font = '900 24px system-ui, sans-serif';
@@ -1627,10 +1634,10 @@ export class SillyPosesGame {
           ctx.translate(arrowRightX, midY);
           ctx.beginPath();
           ctx.arc(0, 0, arrowR, 0, Math.PI * 2);
-          ctx.fillStyle = '#1E293B';
+          ctx.fillStyle = 'rgba(15, 23, 42, 0.88)';
           ctx.fill();
           ctx.lineWidth = 3;
-          ctx.strokeStyle = '#94A3B8';
+          ctx.strokeStyle = '#FEF08A';
           ctx.stroke();
           ctx.fillStyle = '#FFFFFF';
           ctx.font = '900 24px system-ui, sans-serif';
@@ -1653,8 +1660,31 @@ export class SillyPosesGame {
           ctx.restore();
         }
       }
-    } else {
-      // B. GRID VIEW
+
+      this._drawGalleryHands(ctx, player);
+      ctx.restore();
+      return;
+    }
+
+    // B. GRID VIEW
+    // Dark Backdrop
+    ctx.fillStyle = 'rgba(15, 23, 42, 0.95)';
+    ctx.fillRect(0, 0, cw, ch);
+
+    // Top Title
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.font = '900 32px system-ui, sans-serif';
+    ctx.fillStyle = '#FEF08A';
+    ctx.fillText('🖼️ SILLY PHOTOS GALLERY', cw / 2, safeBounds.top + 32);
+
+    ctx.font = '700 15px system-ui, sans-serif';
+    ctx.fillStyle = '#94A3B8';
+    ctx.fillText(
+      `${this.galleryPhotos.length} Saved Snap${this.galleryPhotos.length === 1 ? '' : 's'}`,
+      cw / 2,
+      safeBounds.top + 58
+    );
       // 1. Close Button (top-right)
       const closeX = safeBounds.right - 64;
       const closeY = safeBounds.top + 36;
@@ -1859,9 +1889,13 @@ export class SillyPosesGame {
         ctx.fillText(`Page ${this.galleryPage + 1} of ${totalPages}`, cw / 2, safeBounds.bottom - 22);
         ctx.restore();
       }
-    }
 
     // Hand Cursors in Gallery Overlay
+    this._drawGalleryHands(ctx, player);
+    ctx.restore();
+  }
+
+  _drawGalleryHands(ctx, player) {
     const activePlayers =
       player && player.allPlayers && player.allPlayers.length > 0
         ? player.allPlayers
@@ -1883,7 +1917,5 @@ export class SillyPosesGame {
         }
       }
     }
-
-    ctx.restore();
   }
 }

@@ -11,7 +11,7 @@ const BUTTERFLY_STYLES = [
   { topWing: '#FACC15', bottomWing: '#FEF08A', name: 'Golden Butterfly', points: 2, isGold: true },
 ];
 
-const MAX_ACTIVE_TARGETS = 5;
+const MAX_ACTIVE_TARGETS = 4;
 
 export class ButterflyPopGame {
   constructor() {
