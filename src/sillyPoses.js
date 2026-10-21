@@ -127,6 +127,18 @@ export class SillyPosesGame {
     this._galleryTick = -1;
   }
 
+  _playTapSound() {
+    try {
+      if (typeof sound.playPop === 'function') {
+        this._playTapSound();
+      } else if (typeof sound.playBubblePop === 'function') {
+        sound.playBubblePop(false);
+      }
+    } catch {
+      // ignore
+    }
+  }
+
   _nextPoseImage() {
     if (this.poseDeck.length === 0) {
       this.poseDeck = Array.from({ length: TOTAL_POSE_IMAGES }, (_, i) => i + 1);
@@ -979,7 +991,7 @@ export class SillyPosesGame {
     if (pointer && pointer.active) {
       hands.push(pointer);
       if (pointer.clicked && Math.hypot(pointer.x - gBtnX, pointer.y - gBtnY) < gBtnR + 25) {
-        sound.playPop();
+        this._playTapSound();
         this.openGallery();
         return;
       }
@@ -1003,7 +1015,7 @@ export class SillyPosesGame {
       if (this.galleryHold >= 1.0) {
         this.galleryHold = 0;
         this._galleryTick = -1;
-        sound.playPop();
+        this._playTapSound();
         this.openGallery();
       }
     } else {
@@ -1121,7 +1133,7 @@ export class SillyPosesGame {
         pointer.clicked &&
         Math.hypot(pointer.x - backX, pointer.y - backY) < backR + 20
       ) {
-        sound.playPop();
+        this._playTapSound();
         this.selectedPhoto = null;
         return;
       }
@@ -1143,7 +1155,7 @@ export class SillyPosesGame {
         if (this.galleryBackHold >= 1.0) {
           this.galleryBackHold = 0;
           this._galleryBackTick = -1;
-          sound.playPop();
+          this._playTapSound();
           this.selectedPhoto = null;
           return;
         }
@@ -1163,7 +1175,7 @@ export class SillyPosesGame {
         pointer.clicked &&
         Math.hypot(pointer.x - delX, pointer.y - delY) < delR + 20
       ) {
-        sound.playPop();
+        this._playTapSound();
         const delId = this.selectedPhoto.id;
         photoGallery.deletePhoto(delId);
         this.galleryPhotos = this.galleryPhotos.filter((p) => p.id !== delId);
@@ -1191,7 +1203,7 @@ export class SillyPosesGame {
         if (this.galleryDeleteHold >= 1.0) {
           this.galleryDeleteHold = 0;
           this._galleryDeleteTick = -1;
-          sound.playPop();
+          this._playTapSound();
           const delId = this.selectedPhoto.id;
           photoGallery.deletePhoto(delId);
           this.galleryPhotos = this.galleryPhotos.filter((p) => p.id !== delId);
@@ -1222,7 +1234,7 @@ export class SillyPosesGame {
             pointer.clicked &&
             Math.hypot(pointer.x - arrowLeftX, pointer.y - midY) < arrowR + 20
           ) {
-            sound.playPop();
+            this._playTapSound();
             this.selectedPhoto = this.galleryPhotos[curIdx - 1];
             return;
           }
@@ -1233,7 +1245,7 @@ export class SillyPosesGame {
             this.galleryPrevHold = Math.min(1.0, this.galleryPrevHold + dt / 1.0);
             if (this.galleryPrevHold >= 1.0) {
               this.galleryPrevHold = 0;
-              sound.playPop();
+              this._playTapSound();
               this.selectedPhoto = this.galleryPhotos[curIdx - 1];
               return;
             }
@@ -1250,7 +1262,7 @@ export class SillyPosesGame {
             pointer.clicked &&
             Math.hypot(pointer.x - arrowRightX, pointer.y - midY) < arrowR + 20
           ) {
-            sound.playPop();
+            this._playTapSound();
             this.selectedPhoto = this.galleryPhotos[curIdx + 1];
             return;
           }
@@ -1261,7 +1273,7 @@ export class SillyPosesGame {
             this.galleryNextHold = Math.min(1.0, this.galleryNextHold + dt / 1.0);
             if (this.galleryNextHold >= 1.0) {
               this.galleryNextHold = 0;
-              sound.playPop();
+              this._playTapSound();
               this.selectedPhoto = this.galleryPhotos[curIdx + 1];
               return;
             }
@@ -1285,7 +1297,7 @@ export class SillyPosesGame {
       pointer.clicked &&
       Math.hypot(pointer.x - closeX, pointer.y - closeY) < closeR + 20
     ) {
-      sound.playPop();
+      this._playTapSound();
       this.closeGallery();
       return;
     }
@@ -1307,7 +1319,7 @@ export class SillyPosesGame {
       if (this.galleryCloseHold >= 1.0) {
         this.galleryCloseHold = 0;
         this._galleryCloseTick = -1;
-        sound.playPop();
+        this._playTapSound();
         this.closeGallery();
         return;
       }
@@ -1329,7 +1341,7 @@ export class SillyPosesGame {
         pointer.clicked &&
         Math.hypot(pointer.x - prevX, pointer.y - midY) < navR + 20
       ) {
-        sound.playPop();
+        this._playTapSound();
         this.galleryPage--;
         return;
       }
@@ -1340,7 +1352,7 @@ export class SillyPosesGame {
         this.galleryPrevHold = Math.min(1.0, this.galleryPrevHold + dt / 1.1);
         if (this.galleryPrevHold >= 1.0) {
           this.galleryPrevHold = 0;
-          sound.playPop();
+          this._playTapSound();
           this.galleryPage--;
           return;
         }
@@ -1359,7 +1371,7 @@ export class SillyPosesGame {
         pointer.clicked &&
         Math.hypot(pointer.x - nextX, pointer.y - midY) < navR + 20
       ) {
-        sound.playPop();
+        this._playTapSound();
         this.galleryPage++;
         return;
       }
@@ -1370,7 +1382,7 @@ export class SillyPosesGame {
         this.galleryNextHold = Math.min(1.0, this.galleryNextHold + dt / 1.1);
         if (this.galleryNextHold >= 1.0) {
           this.galleryNextHold = 0;
-          sound.playPop();
+          this._playTapSound();
           this.galleryPage++;
           return;
         }
@@ -1403,7 +1415,7 @@ export class SillyPosesGame {
           pointer.y >= box.y &&
           pointer.y <= box.y + box.h
         ) {
-          sound.playPop();
+          this._playTapSound();
           this.selectedPhoto = p;
           return;
         }
@@ -1433,7 +1445,7 @@ export class SillyPosesGame {
         if (this.galleryPhotoHolds[i] >= 1.0) {
           this.galleryPhotoHolds[i] = 0;
           this._galleryPhotoTicks[i] = -1;
-          sound.playPop();
+          this._playTapSound();
           this.selectedPhoto = p;
           return;
         }
@@ -1487,9 +1499,14 @@ export class SillyPosesGame {
       ctx.fill();
 
       // Image
-      if (p._img && p._img.complete) {
+      if (p._img && p._img.complete && p._img.naturalWidth > 0) {
         ctx.drawImage(p._img, -pw / 2, -ph / 2, pw, ph);
       } else {
+        if (!p._img && p.dataUrl) {
+          const img = new Image();
+          img.src = p.dataUrl;
+          p._img = img;
+        }
         ctx.fillStyle = '#1E293B';
         ctx.fillRect(-pw / 2, -ph / 2, pw, ph);
       }
@@ -1726,9 +1743,14 @@ export class SillyPosesGame {
           // Card image (16:9 inner area)
           const imgH = box.h - 32;
           const pad = 6;
-          if (p._img && p._img.complete) {
+          if (p._img && p._img.complete && p._img.naturalWidth > 0) {
             ctx.drawImage(p._img, box.x + pad, box.y + pad, box.w - pad * 2, imgH - pad);
           } else {
+            if (!p._img && p.dataUrl) {
+              const img = new Image();
+              img.src = p.dataUrl;
+              p._img = img;
+            }
             ctx.fillStyle = '#1E293B';
             ctx.fillRect(box.x + pad, box.y + pad, box.w - pad * 2, imgH - pad);
           }

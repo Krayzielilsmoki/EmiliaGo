@@ -220,7 +220,7 @@ export class ButterflyPopGame {
 
         // Shimmering fairy dust trail behind the butterfly
         t.trailTimer = (t.trailTimer || 0) + dt;
-        if (t.trailTimer >= 0.10 && this.particles.length < 20) {
+        if (t.trailTimer >= 0.14 && this.particles.length < 12) {
           t.trailTimer = 0;
           const facing = t.vx >= 0 ? 1 : -1;
           this.particles.push({
@@ -524,28 +524,28 @@ export class ButterflyPopGame {
 
     if (this.particles.length > 0) {
       ctx.save();
+      // 1. Batch all fairy dust crosses in a single stroke
+      ctx.strokeStyle = '#FEF08A';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
       for (const p of this.particles) {
-        const alpha = Math.max(0, p.life / p.maxLife);
-        ctx.globalAlpha = alpha;
         if (p.kind === 'fairydust') {
-          ctx.strokeStyle = p.color;
-          ctx.lineWidth = 2;
-          ctx.beginPath();
           ctx.moveTo(p.x - p.r * 1.5, p.y);
           ctx.lineTo(p.x + p.r * 1.5, p.y);
           ctx.moveTo(p.x, p.y - p.r * 1.5);
           ctx.lineTo(p.x, p.y + p.r * 1.5);
-          ctx.stroke();
-          ctx.fillStyle = '#FFFFFF';
-          ctx.beginPath();
-          ctx.arc(p.x, p.y, p.r * 0.45, 0, Math.PI * 2);
-          ctx.fill();
-        } else {
-          ctx.fillStyle = p.color;
-          ctx.beginPath();
-          ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
-          ctx.fill();
         }
+      }
+      ctx.stroke();
+
+      // 2. Batch particle centers
+      for (const p of this.particles) {
+        const alpha = Math.max(0, p.life / p.maxLife);
+        ctx.globalAlpha = alpha;
+        ctx.fillStyle = p.kind === 'fairydust' ? '#FFFFFF' : p.color;
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, p.kind === 'fairydust' ? p.r * 0.45 : p.r, 0, Math.PI * 2);
+        ctx.fill();
       }
       ctx.restore();
     }
@@ -663,23 +663,25 @@ export class ButterflyPopGame {
    * (Zero Gaussian shadowBlur or clip passes - blazing fast 60fps Skia performance!)
    */
   drawBee(ctx, bee) {
-    // Render golden pollen trail (batched, 0 shadowBlur Gaussian overhead!)
+    // Render golden pollen trail (batched into 2 fill passes total!)
     if (bee.pollenTrail && bee.pollenTrail.length > 0) {
-      ctx.save();
+      // 1. Outer soft glow
+      ctx.fillStyle = 'rgba(254, 240, 138, 0.35)';
+      ctx.beginPath();
       for (const pt of bee.pollenTrail) {
-        const alpha = Math.max(0, pt.life / pt.maxLife);
-        // Outer soft glow
-        ctx.fillStyle = `rgba(254, 240, 138, ${alpha * 0.35})`;
-        ctx.beginPath();
+        ctx.moveTo(pt.x + pt.r * 1.6, pt.y);
         ctx.arc(pt.x, pt.y, pt.r * 1.6, 0, Math.PI * 2);
-        ctx.fill();
-        // Inner golden particle
-        ctx.fillStyle = `rgba(250, 204, 21, ${alpha * 0.9})`;
-        ctx.beginPath();
-        ctx.arc(pt.x, pt.y, pt.r, 0, Math.PI * 2);
-        ctx.fill();
       }
-      ctx.restore();
+      ctx.fill();
+
+      // 2. Inner golden particle
+      ctx.fillStyle = 'rgba(250, 204, 21, 0.9)';
+      ctx.beginPath();
+      for (const pt of bee.pollenTrail) {
+        ctx.moveTo(pt.x + pt.r, pt.y);
+        ctx.arc(pt.x, pt.y, pt.r, 0, Math.PI * 2);
+      }
+      ctx.fill();
     }
 
     ctx.save();
@@ -823,135 +825,93 @@ export class ButterflyPopGame {
     const flapHind = 0.32 + Math.abs(Math.sin(bf.flapPhase + 0.35)) * 0.68;
     const r = bf.r * 0.85;
 
-    // Render left & right wings
-    [-1, 1].forEach((dir) => {
-      // 1. Forewing (Upper Wing)
-      ctx.save();
-      ctx.scale(flapFore, 1);
+    // 1. Forewings (Left & Right batched)
+    ctx.save();
+    ctx.scale(flapFore, 1);
+    ctx.fillStyle = bf.style.topWing;
+    ctx.strokeStyle = '#FFFFFF';
+    ctx.lineWidth = 3;
+    ctx.lineJoin = 'round';
+    ctx.beginPath();
+    // Left forewing
+    ctx.moveTo(0, -r * 0.15);
+    ctx.bezierCurveTo(-r * 0.35, -r * 0.85, -r * 1.15, -r * 0.8, -r * 1.25, -r * 0.25);
+    ctx.bezierCurveTo(-r * 1.15, r * 0.1, -r * 0.45, r * 0.05, 0, 0);
+    // Right forewing
+    ctx.moveTo(0, -r * 0.15);
+    ctx.bezierCurveTo(r * 0.35, -r * 0.85, r * 1.15, -r * 0.8, r * 1.25, -r * 0.25);
+    ctx.bezierCurveTo(r * 1.15, r * 0.1, r * 0.45, r * 0.05, 0, 0);
+    ctx.fill();
+    ctx.stroke();
 
-      ctx.fillStyle = bf.style.topWing;
-      ctx.strokeStyle = '#FFFFFF';
-      ctx.lineWidth = 3;
-      ctx.lineJoin = 'round';
-      ctx.beginPath();
-      ctx.moveTo(0, -r * 0.15);
-      ctx.bezierCurveTo(
-        dir * r * 0.35,
-        -r * 0.85,
-        dir * r * 1.15,
-        -r * 0.8,
-        dir * r * 1.25,
-        -r * 0.25
-      );
-      ctx.bezierCurveTo(dir * r * 1.15, r * 0.1, dir * r * 0.45, r * 0.05, 0, 0);
-      ctx.closePath();
-      ctx.fill();
-      ctx.stroke();
+    // Soft wing highlights
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.35)';
+    ctx.beginPath();
+    ctx.ellipse(-r * 0.55, -r * 0.45, r * 0.32, r * 0.18, -0.4, 0, Math.PI * 2);
+    ctx.ellipse(r * 0.55, -r * 0.45, r * 0.32, r * 0.18, 0.4, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
 
-      // Soft wing highlight
-      ctx.fillStyle = 'rgba(255, 255, 255, 0.35)';
-      ctx.beginPath();
-      ctx.ellipse(dir * r * 0.55, -r * 0.45, r * 0.32, r * 0.18, dir * 0.4, 0, Math.PI * 2);
-      ctx.fill();
+    // 2. Hindwings (Left & Right batched)
+    ctx.save();
+    ctx.scale(flapHind, 1);
+    ctx.fillStyle = bf.style.bottomWing;
+    ctx.strokeStyle = '#FFFFFF';
+    ctx.lineWidth = 2.8;
+    ctx.beginPath();
+    // Left hindwing
+    ctx.moveTo(0, 0);
+    ctx.bezierCurveTo(-r * 0.45, r * 0.05, -r * 0.95, r * 0.4, -r * 0.75, r * 0.85);
+    ctx.bezierCurveTo(-r * 0.4, r * 0.95, -r * 0.1, r * 0.6, 0, r * 0.25);
+    // Right hindwing
+    ctx.moveTo(0, 0);
+    ctx.bezierCurveTo(r * 0.45, r * 0.05, r * 0.95, r * 0.4, r * 0.75, r * 0.85);
+    ctx.bezierCurveTo(r * 0.4, r * 0.95, r * 0.1, r * 0.6, 0, r * 0.25);
+    ctx.fill();
+    ctx.stroke();
 
-      // Delicate stained-glass wing veins
-      ctx.strokeStyle = 'rgba(15, 23, 42, 0.25)';
-      ctx.lineWidth = 1.8;
-      [-0.6, -0.4, -0.15].forEach((veinY) => {
-        ctx.beginPath();
-        ctx.moveTo(0, -r * 0.1);
-        ctx.quadraticCurveTo(
-          dir * r * 0.5,
-          veinY * r * 0.8,
-          dir * r * 1.1,
-          veinY * r
-        );
-        ctx.stroke();
-      });
+    // Jeweled eye-spots on hindwings
+    ctx.fillStyle = '#0F172A';
+    ctx.beginPath();
+    ctx.arc(-r * 0.52, r * 0.52, 5, 0, Math.PI * 2);
+    ctx.arc(r * 0.52, r * 0.52, 5, 0, Math.PI * 2);
+    ctx.fill();
 
-      ctx.restore();
+    ctx.fillStyle = bf.style.isGold ? '#EF4444' : '#FACC15';
+    ctx.beginPath();
+    ctx.arc(-r * 0.52, r * 0.52, 3.2, 0, Math.PI * 2);
+    ctx.arc(r * 0.52, r * 0.52, 3.2, 0, Math.PI * 2);
+    ctx.fill();
 
-      // 2. Hindwing (Lower Wing)
-      ctx.save();
-      ctx.scale(flapHind, 1);
+    ctx.fillStyle = '#FFFFFF';
+    ctx.beginPath();
+    ctx.arc(-r * 0.52 - 1, r * 0.52 - 1, 1.2, 0, Math.PI * 2);
+    ctx.arc(r * 0.52 - 1, r * 0.52 - 1, 1.2, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
 
-      ctx.fillStyle = bf.style.bottomWing;
-      ctx.strokeStyle = '#FFFFFF';
-      ctx.lineWidth = 2.8;
-      ctx.beginPath();
-      ctx.moveTo(0, 0);
-      ctx.bezierCurveTo(
-        dir * r * 0.45,
-        r * 0.05,
-        dir * r * 0.95,
-        r * 0.4,
-        dir * r * 0.75,
-        r * 0.85
-      );
-      ctx.bezierCurveTo(dir * r * 0.4, r * 0.95, dir * r * 0.1, r * 0.6, 0, r * 0.25);
-      ctx.closePath();
-      ctx.fill();
-      ctx.stroke();
-
-      // Jeweled eye-spot on hindwing
-      const spotX = dir * r * 0.52;
-      const spotY = r * 0.52;
-      ctx.fillStyle = '#0F172A';
-      ctx.beginPath();
-      ctx.arc(spotX, spotY, 5, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.fillStyle = bf.style.isGold ? '#EF4444' : '#FACC15';
-      ctx.beginPath();
-      ctx.arc(spotX, spotY, 3.2, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.fillStyle = '#FFFFFF';
-      ctx.beginPath();
-      ctx.arc(spotX - 1, spotY - 1, 1.2, 0, Math.PI * 2);
-      ctx.fill();
-
-      ctx.restore();
-    });
-
-    // 3. Cute Cartoon Body & Thorax
+    // 3. Cute Cartoon Body, Thorax & Head
     ctx.fillStyle = '#0F172A';
     ctx.strokeStyle = '#334155';
     ctx.lineWidth = 1.5;
     ctx.beginPath();
     ctx.ellipse(0, r * 0.15, 6, r * 0.5, 0, 0, Math.PI * 2);
+    ctx.arc(0, -r * 0.45, 8, 0, Math.PI * 2);
     ctx.fill();
     ctx.stroke();
 
-    // Body segments
-    ctx.strokeStyle = 'rgba(255, 255, 255, 0.35)';
-    ctx.lineWidth = 1.5;
-    [-r * 0.05, r * 0.15, r * 0.35].forEach((segY) => {
-      ctx.beginPath();
-      ctx.moveTo(-5, segY);
-      ctx.lineTo(5, segY);
-      ctx.stroke();
-    });
-
-    // Round head
-    ctx.fillStyle = '#0F172A';
+    // Big happy cartoon eyes
+    ctx.fillStyle = '#FFFFFF';
     ctx.beginPath();
-    ctx.arc(0, -r * 0.45, 8, 0, Math.PI * 2);
+    ctx.arc(-4, -r * 0.48, 3.8, 0, Math.PI * 2);
+    ctx.arc(4, -r * 0.48, 3.8, 0, Math.PI * 2);
     ctx.fill();
 
-    // Big happy cartoon eyes
-    [-4, 4].forEach((ex) => {
-      ctx.fillStyle = '#FFFFFF';
-      ctx.beginPath();
-      ctx.arc(ex, -r * 0.48, 3.8, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.fillStyle = '#0F172A';
-      ctx.beginPath();
-      ctx.arc(ex + (facing > 0 ? 0.8 : -0.8), -r * 0.48, 2.2, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.fillStyle = '#FFFFFF';
-      ctx.beginPath();
-      ctx.arc(ex + 0.3, -r * 0.51, 1, 0, Math.PI * 2);
-      ctx.fill();
-    });
+    ctx.fillStyle = '#0F172A';
+    ctx.beginPath();
+    ctx.arc(-4 + (facing > 0 ? 0.8 : -0.8), -r * 0.48, 2.2, 0, Math.PI * 2);
+    ctx.arc(4 + (facing > 0 ? 0.8 : -0.8), -r * 0.48, 2.2, 0, Math.PI * 2);
+    ctx.fill();
 
     // Curled perky antennae with glowing pollen tips
     ctx.strokeStyle = '#FEF08A';
@@ -965,11 +925,10 @@ export class ButterflyPopGame {
     ctx.stroke();
 
     ctx.fillStyle = '#FACC15';
-    [-18, 18].forEach((ax) => {
-      ctx.beginPath();
-      ctx.arc(ax, -r * 0.88, 3, 0, Math.PI * 2);
-      ctx.fill();
-    });
+    ctx.beginPath();
+    ctx.arc(-18, -r * 0.88, 3, 0, Math.PI * 2);
+    ctx.arc(18, -r * 0.88, 3, 0, Math.PI * 2);
+    ctx.fill();
 
     ctx.restore();
   }
@@ -983,30 +942,24 @@ export class ButterflyPopGame {
     const r = lb.r * 0.85;
     const flap = Math.sin(lb.flapPhase || 0);
 
-    // 1. Cute Tiny Black Cartoon Legs (3 upper, 3 lower)
+    // 1. Cute Tiny Black Cartoon Legs in ONE stroke
     ctx.strokeStyle = '#0F172A';
     ctx.lineWidth = 3;
     ctx.lineCap = 'round';
+    ctx.beginPath();
     [-r * 0.35, 0, r * 0.35].forEach((lx, i) => {
       const legWiggle = Math.sin((lb.flapPhase || 0) + i * 1.5) * 2.5;
-      // Top legs
-      ctx.beginPath();
       ctx.moveTo(lx, -r * 0.55);
       ctx.lineTo(lx - 5, -r * 0.95 + legWiggle);
-      ctx.stroke();
-      // Bottom legs
-      ctx.beginPath();
       ctx.moveTo(lx, r * 0.55);
       ctx.lineTo(lx - 5, r * 0.95 - legWiggle);
-      ctx.stroke();
     });
+    ctx.stroke();
 
-    // 2. Flapping Translucent Wings (fluttering out above and below the carapace)
-    ctx.save();
+    // 2. Flapping Translucent Wings in ONE fill & stroke
     ctx.fillStyle = 'rgba(255, 255, 255, 0.55)';
     ctx.strokeStyle = 'rgba(255, 255, 255, 0.9)';
     ctx.lineWidth = 2;
-    // Upper wing
     ctx.beginPath();
     ctx.ellipse(
       -r * 0.15,
@@ -1017,10 +970,6 @@ export class ButterflyPopGame {
       0,
       Math.PI * 2
     );
-    ctx.fill();
-    ctx.stroke();
-    // Lower wing
-    ctx.beginPath();
     ctx.ellipse(
       -r * 0.15,
       r * 0.72 - flap * 5,
@@ -1032,58 +981,39 @@ export class ButterflyPopGame {
     );
     ctx.fill();
     ctx.stroke();
-    ctx.restore();
 
-    // 3. Round Red Shell / Elytra (Divided horizontally along spine!)
-    const wingSpread = 1.5; // slight flight separation along horizontal midline
-    
-    // Top Wing Half (y <= 0)
+    // 3. Round Red Shell / Elytra
+    const wingSpread = 1.5;
     ctx.fillStyle = '#EF4444';
     ctx.strokeStyle = '#0F172A';
     ctx.lineWidth = 3.5;
     ctx.beginPath();
     ctx.arc(0, -wingSpread, r, Math.PI, Math.PI * 2);
     ctx.closePath();
-    ctx.fill();
-    ctx.stroke();
-
-    // Bottom Wing Half (y >= 0)
-    ctx.beginPath();
     ctx.arc(0, wingSpread, r, 0, Math.PI);
     ctx.closePath();
     ctx.fill();
     ctx.stroke();
-    ctx.stroke();
 
-    // Horizontal Wing Seam Spine (along body length towards head at +x)
-    ctx.strokeStyle = '#0F172A';
-    ctx.lineWidth = 3.5;
+    // Horizontal Wing Seam Spine
     ctx.beginPath();
     ctx.moveTo(-r, 0);
     ctx.lineTo(r * 0.48, 0);
     ctx.stroke();
 
-    // Cute Black Polka Dots (symmetrically placed on top & bottom wings!)
+    // Cute Black Polka Dots (all 7 in ONE single path & fill!)
     ctx.fillStyle = '#0F172A';
-    const dots = [
-      // Top wing dots
-      [-r * 0.48, -r * 0.45, 5],
-      [-r * 0.08, -r * 0.58, 5],
-      [r * 0.22, -r * 0.35, 4.5],
-      // Bottom wing dots
-      [-r * 0.48, r * 0.45, 5],
-      [-r * 0.08, r * 0.58, 5],
-      [r * 0.22, r * 0.35, 4.5],
-      // Center rear dot
-      [-r * 0.72, 0, 4.5],
-    ];
-    dots.forEach(([dx, dy, dr]) => {
-      ctx.beginPath();
-      ctx.arc(dx, dy, dr, 0, Math.PI * 2);
-      ctx.fill();
-    });
+    ctx.beginPath();
+    ctx.arc(-r * 0.48, -r * 0.45, 5, 0, Math.PI * 2);
+    ctx.arc(-r * 0.08, -r * 0.58, 5, 0, Math.PI * 2);
+    ctx.arc(r * 0.22, -r * 0.35, 4.5, 0, Math.PI * 2);
+    ctx.arc(-r * 0.48, r * 0.45, 5, 0, Math.PI * 2);
+    ctx.arc(-r * 0.08, r * 0.58, 5, 0, Math.PI * 2);
+    ctx.arc(r * 0.22, r * 0.35, 4.5, 0, Math.PI * 2);
+    ctx.arc(-r * 0.72, 0, 4.5, 0, Math.PI * 2);
+    ctx.fill();
 
-    // Glossy Specular Highlights on upper wing
+    // Specular highlight
     ctx.strokeStyle = 'rgba(255, 255, 255, 0.65)';
     ctx.lineWidth = 3;
     ctx.lineCap = 'round';
@@ -1091,66 +1021,53 @@ export class ButterflyPopGame {
     ctx.ellipse(-r * 0.28, -r * 0.45, r * 0.35, r * 0.16, -0.3, 0.8 * Math.PI, 1.4 * Math.PI);
     ctx.stroke();
 
-    // 4. Black Pronotum / Collar (between shell and head)
+    // 4. Black Pronotum + Head (batched)
     ctx.fillStyle = '#0F172A';
     ctx.beginPath();
     ctx.ellipse(r * 0.48, 0, r * 0.24, r * 0.52, 0, -Math.PI * 0.5, Math.PI * 0.5);
-    ctx.fill();
-    ctx.stroke();
-
-    // White accent spots on ladybug collar
-    ctx.fillStyle = '#FFFFFF';
-    ctx.beginPath();
-    ctx.ellipse(r * 0.44, -r * 0.26, 4, 3, 0, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.beginPath();
-    ctx.ellipse(r * 0.44, r * 0.26, 4, 3, 0, 0, Math.PI * 2);
-    ctx.fill();
-
-    // 5. Black Head at Front (+x)
-    ctx.fillStyle = '#0F172A';
-    ctx.beginPath();
     ctx.arc(r * 0.72, 0, r * 0.32, 0, Math.PI * 2);
     ctx.fill();
     ctx.stroke();
 
-    // 6. Two Cute Cartoon Eyes (facing forward!)
-    [-1, 1].forEach((dir) => {
-      const eyeY = dir * (r * 0.18);
-      // White eye
-      ctx.fillStyle = '#FFFFFF';
-      ctx.beginPath();
-      ctx.arc(r * 0.76, eyeY, 5, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.strokeStyle = '#0F172A';
-      ctx.lineWidth = 1.5;
-      ctx.stroke();
-      // Pupil looking forward
-      ctx.fillStyle = '#0F172A';
-      ctx.beginPath();
-      ctx.arc(r * 0.80, eyeY, 2.8, 0, Math.PI * 2);
-      ctx.fill();
-      // White sparkle
-      ctx.fillStyle = '#FFFFFF';
-      ctx.beginPath();
-      ctx.arc(r * 0.81, eyeY - 1.2, 1.2, 0, Math.PI * 2);
-      ctx.fill();
-    });
+    // White accent spots on collar
+    ctx.fillStyle = '#FFFFFF';
+    ctx.beginPath();
+    ctx.ellipse(r * 0.44, -r * 0.26, 4, 3, 0, 0, Math.PI * 2);
+    ctx.ellipse(r * 0.44, r * 0.26, 4, 3, 0, 0, Math.PI * 2);
+    ctx.fill();
 
-    // 7. Cute Antennae curving forward with little round knobs
+    // 5. Cartoon Eyes
+    ctx.fillStyle = '#FFFFFF';
+    ctx.beginPath();
+    ctx.arc(r * 0.76, -r * 0.18, 5, 0, Math.PI * 2);
+    ctx.arc(r * 0.76, r * 0.18, 5, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = '#0F172A';
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+
+    // Pupils
+    ctx.fillStyle = '#0F172A';
+    ctx.beginPath();
+    ctx.arc(r * 0.8, -r * 0.18, 2.8, 0, Math.PI * 2);
+    ctx.arc(r * 0.8, r * 0.18, 2.8, 0, Math.PI * 2);
+    ctx.fill();
+
+    // 6. Antennae
     ctx.strokeStyle = '#0F172A';
     ctx.lineWidth = 2.5;
-    [-1, 1].forEach((dir) => {
-      ctx.beginPath();
-      ctx.moveTo(r * 0.88, dir * 4);
-      ctx.quadraticCurveTo(r * 1.15, dir * 14, r * 1.28, dir * 8);
-      ctx.stroke();
-      // Antenna tip knob
-      ctx.fillStyle = '#0F172A';
-      ctx.beginPath();
-      ctx.arc(r * 1.28, dir * 8, 3, 0, Math.PI * 2);
-      ctx.fill();
-    });
+    ctx.beginPath();
+    ctx.moveTo(r * 0.88, -4);
+    ctx.quadraticCurveTo(r * 1.15, -14, r * 1.28, -8);
+    ctx.moveTo(r * 0.88, 4);
+    ctx.quadraticCurveTo(r * 1.15, 14, r * 1.28, 8);
+    ctx.stroke();
+
+    ctx.fillStyle = '#0F172A';
+    ctx.beginPath();
+    ctx.arc(r * 1.28, -8, 3, 0, Math.PI * 2);
+    ctx.arc(r * 1.28, 8, 3, 0, Math.PI * 2);
+    ctx.fill();
 
     ctx.restore();
   }

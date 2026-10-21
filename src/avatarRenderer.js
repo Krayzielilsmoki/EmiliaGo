@@ -151,16 +151,16 @@ export class AvatarRenderer {
             const speed = Math.hypot(h.vx || 0, h.vy || 0);
             if (speed > 1.2 || Math.random() < 0.35) {
               this._colorIdx = (this._colorIdx + 1) % RAINBOW_COLORS.length;
-              if (this.rainbowTrailParticles.length < 45) {
+              if (this.rainbowTrailParticles.length < 16) {
                 this.rainbowTrailParticles.push({
-                  x: h.x + (Math.random() - 0.5) * h.r * 0.6,
-                  y: h.y + (Math.random() - 0.5) * h.r * 0.6,
-                  vx: (Math.random() - 0.5) * 35,
-                  vy: -25 - Math.random() * 40,
-                  r: 7 + Math.random() * 9,
+                  x: h.x + (Math.random() - 0.5) * h.r * 0.5,
+                  y: h.y + (Math.random() - 0.5) * h.r * 0.5,
+                  vx: (Math.random() - 0.5) * 28,
+                  vy: -20 - Math.random() * 30,
+                  r: 5 + Math.random() * 6,
                   color: RAINBOW_COLORS[this._colorIdx],
-                  life: 0.45,
-                  maxLife: 0.45,
+                  life: 0.35,
+                  maxLife: 0.35,
                 });
               }
             }
@@ -169,20 +169,25 @@ export class AvatarRenderer {
       }
     }
 
-    for (let i = this.rainbowTrailParticles.length - 1; i >= 0; i--) {
-      const p = this.rainbowTrailParticles[i];
-      p.x += p.vx * dt;
-      p.y += p.vy * dt;
-      p.life -= dt;
-      if (p.life <= 0) {
-        this.rainbowTrailParticles.splice(i, 1);
-      } else {
-        const alpha = Math.max(0, p.life / p.maxLife);
-        ctx.save();
-        ctx.globalAlpha = alpha * 0.85;
-        this.drawStar(ctx, p.x, p.y, 5, p.r * alpha + 3, (p.r * alpha + 3) * 0.45, p.color, '#FFFFFF');
-        ctx.restore();
+    if (this.rainbowTrailParticles.length > 0) {
+      ctx.save();
+      for (let i = this.rainbowTrailParticles.length - 1; i >= 0; i--) {
+        const p = this.rainbowTrailParticles[i];
+        p.x += p.vx * dt;
+        p.y += p.vy * dt;
+        p.life -= dt;
+        if (p.life <= 0) {
+          this.rainbowTrailParticles.splice(i, 1);
+        } else {
+          const alpha = Math.max(0, p.life / p.maxLife);
+          ctx.globalAlpha = alpha * 0.85;
+          ctx.fillStyle = p.color;
+          ctx.beginPath();
+          ctx.arc(p.x, p.y, p.r * alpha + 2, 0, Math.PI * 2);
+          ctx.fill();
+        }
       }
+      ctx.restore();
     }
 
     // Optional solid cartoon backdrop in Avatar Mode

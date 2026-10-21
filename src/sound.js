@@ -1150,6 +1150,13 @@ class SoundManager {
     );
   }
 
+  /**
+   * Crisp UI pop sound for buttons and gallery selections
+   */
+  playPop() {
+    this.playBubblePop(false);
+  }
+
   playBubblePop(isButterfly = false) {
     if (!this.enabled) return;
     this.init();
