@@ -1,0 +1,306 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    <title>EmiliaGO! — Emilia's Playground</title>
+    <link rel="stylesheet" href="/src/style.css" />
+  </head>
+  <body>
+    <div id="app">
+      <!-- Cheerful Startup Splash Screen: "Emilia's Playground" -->
+      <div id="splash-screen">
+        <div class="splash-floating-icons">
+          <span class="float-item f1">🎈</span>
+          <span class="float-item f2">👑</span>
+          <span class="float-item f3">🦋</span>
+          <span class="float-item f4">⭐</span>
+          <span class="float-item f5">🫧</span>
+        </div>
+        <div class="splash-card">
+          <div class="splash-logo-pill">🎈 Emilia<span class="brand-go">GO!</span></div>
+          <h1 class="splash-title">Emilia's Playground</h1>
+          <p class="splash-subtitle">Get Ready to Jump, Wave &amp; Play!</p>
+          <div class="splash-progress-track">
+            <div id="splash-progress-bar" class="splash-progress-fill"></div>
+          </div>
+          <div id="splash-status-text" class="splash-status">Waking up the Magic Mirror...</div>
+        </div>
+      </div>
+
+      <!-- Hidden raw video element fed by the CODi Falco webcam -->
+      <video id="webcam-video" playsinline muted></video>
+
+      <!-- Main 16:9 TV Game & Mirror Canvas -->
+      <canvas id="game-canvas"></canvas>
+
+      <!-- Ultra-Compact Top HUD Bar -->
+      <header id="top-bar">
+        <div class="brand-badge" id="btn-brand-home" title="Return to Game Hub">
+          <span class="brand-icon">🎈</span>
+          <h1>Emilia<span class="brand-go">GO!</span></h1>
+          <span id="mode-subtitle" class="subtitle">Choose a Game!</span>
+        </div>
+
+        <div class="score-board">
+          <div class="score-pill star-trophy" id="star-pill" title="Golden Stars Earned by Emilia">
+            <span class="score-label" id="star-label-text">⭐</span>
+            <span id="star-val" class="score-number">0</span>
+          </div>
+          <div class="score-pill current-score" id="current-score-pill">
+            <span id="score-label-text" class="score-label">SCORE</span>
+            <span id="score-val" class="score-number">0</span>
+          </div>
+          <div class="score-pill best-score" id="best-score-pill">
+            <span id="best-label-text" class="score-label">BEST</span>
+            <span id="best-val" class="score-number">0</span>
+          </div>
+        </div>
+      </header>
+
+      <!-- Compact, Non-Obtrusive Floating Star Burst (No Text Box!) -->
+      <div id="star-reward-burst" class="hidden">
+        <span class="burst-star">⭐</span>
+        <span class="burst-plus">+1</span>
+      </div>
+
+      <!-- Controller Back-Button Pause & Exit Confirmation Modal -->
+      <div id="confirm-modal" class="hidden" role="dialog" aria-modal="true">
+        <div class="confirm-card">
+          <h2 id="confirm-title">⏸️ Game Paused</h2>
+          <p id="confirm-subtitle">Would you like to keep playing or go back to the Game Hub?</p>
+          <div class="confirm-actions">
+            <button id="btn-confirm-cancel" class="btn btn-green confirm-btn">▶️ Keep Playing</button>
+            <button id="btn-confirm-ok" class="btn btn-red confirm-btn">🏠 Back to Hub</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Side Drawer: Controller-Accessible Persistent Parent Settings -->
+      <aside id="lab-drawer" class="closed" aria-label="Parent Settings">
+        <div class="drawer-header">
+          <div>
+            <h2>⚙️ Parent &amp; TV Settings</h2>
+            <span class="saved-badge" id="saved-indicator">✓ Auto-Saved</span>
+          </div>
+          <button id="btn-close-lab" class="icon-btn" aria-label="Close Settings">✕</button>
+        </div>
+
+        <!-- Avatar & Player Style (Accessible via Remote Arrow-Right) -->
+        <section class="lab-section">
+          <h3>🎭 Avatar &amp; Player Style</h3>
+          <div class="remote-grid">
+            <button id="btn-avatar-mode" class="btn btn-blue" title="Switch between Cartoon Stickers, Full Avatar, and Skeleton">✨ Stickers</button>
+            <button id="btn-player-mode" class="btn btn-yellow" title="Switch between Auto 1P/2P, 1 Player Only, and 2 Players">👥 2P Auto</button>
+          </div>
+        </section>
+
+        <!-- Quick Game Switcher for Parent Remote -->
+        <section class="lab-section">
+          <h3>🎮 Quick Game Switcher (Remote)</h3>
+          <div class="remote-grid">
+            <button id="btn-remote-hub" class="btn btn-yellow">🏠 Start Hub</button>
+            <button id="btn-remote-keepy" class="btn btn-red">🎈 Keepy Uppy</button>
+            <button id="btn-remote-hats" class="btn btn-blue">👑 Hat Stack</button>
+            <button id="btn-remote-butterflies" class="btn btn-green">🦋 Butterflies</button>
+            <button id="btn-remote-poses" class="btn btn-blue">📸 Silly Poses</button>
+            <button id="btn-remote-dance" class="btn btn-yellow">🪩 Dance Party</button>
+            <button id="btn-remote-disaster" class="btn btn-red">🌋 Floor is Lava</button>
+            <button id="btn-balloon-count" class="btn btn-slate">🎈 1 Balloon</button>
+          </div>
+          <div class="remote-grid" style="margin-top: 8px;">
+            <button id="btn-calibrate" class="btn btn-slate" style="grid-column: span 2;">🙌 Calibrate Play-Space</button>
+          </div>
+        </section>
+
+        <!-- Background Music, Voice Coach & Character Soundboard -->
+        <section class="lab-section">
+          <h3>🎵 Music, Voice &amp; Soundboard</h3>
+          <label class="checkbox-label">
+            <input type="checkbox" id="chk-music-enabled" checked />
+            Playful Playground Background Music
+          </label>
+
+          <label class="slider-label">
+            <span>Background Music Volume</span>
+            <span id="val-music-vol">16%</span>
+          </label>
+          <input type="range" id="slider-music-vol" min="4" max="45" step="2" value="16" />
+
+          <label class="checkbox-label" style="margin-top: 6px;">
+            <input type="checkbox" id="chk-voice-enabled" checked />
+            Spoken Voice Instructions for Emilia
+          </label>
+
+          <label class="control-label" style="margin-top: 8px;">
+            Character Celebration Frequency:
+            <select id="select-soundboard-freq">
+              <option value="10" selected>Every 10 Hits / Catches (Recommended)</option>
+              <option value="15">Every 15 Hits / Catches</option>
+              <option value="20">Every 20 Hits / Catches</option>
+              <option value="5">Every 5 Hits / Catches</option>
+            </select>
+          </label>
+
+          <div class="remote-grid" style="margin-top: 8px;">
+            <button id="btn-test-soundboard" class="btn btn-yellow">🎉 Test Character Sound</button>
+            <button id="btn-upload-clips" class="btn btn-slate">🎵 Load Custom MP3/WAV</button>
+          </div>
+          <input type="file" id="input-custom-audio" accept="audio/*" multiple style="display: none;" />
+          <p id="custom-audio-status" class="help-text" style="margin-top: 6px; margin-bottom: 0;">
+            Includes real Bluey, Bingo, Peppa Pig, Bandit, Sheriff Labrador &amp; Danny Go!
+          </p>
+        </section>
+
+        <!-- Webcam & TV Aspect Mapping -->
+        <section class="lab-section">
+          <h3>📷 Webcam &amp; Zoom Settings</h3>
+          <label class="control-label">
+            Select USB Camera:
+            <select id="select-camera"></select>
+          </label>
+
+          <label class="control-label">
+            Resolution Request:
+            <select id="select-resolution">
+              <option value="720p" selected>720p (1280×720 16:9 Wide - Best)</option>
+              <option value="360p">360p (640×360 16:9 Fast Wide)</option>
+              <option value="1080p">1080p (1920×1080 16:9 Full Sensor)</option>
+              <option value="480p">480p (640×480 4:3 Standard)</option>
+            </select>
+          </label>
+
+          <label class="control-label">
+            TV Aspect Fit:
+            <select id="select-fit">
+              <option value="contain" selected>Contain (Show 100% Camera FOV - No Crop)</option>
+              <option value="cover">Cover (Fill 16:9 Screen)</option>
+            </select>
+          </label>
+
+          <label class="slider-label">
+            <span>Camera Frame Scale (Zoom Out)</span>
+            <span id="val-zoom-scale">100%</span>
+          </label>
+          <input type="range" id="slider-zoom-scale" min="65" max="100" step="5" value="100" />
+
+          <div class="remote-grid" style="margin-top: 10px;">
+            <button id="btn-reset-exposure" class="btn btn-yellow" style="grid-column: span 2;" title="Reset Camera Hardware & Auto-Exposure">
+              ☀️ Reset Camera &amp; Fix Exposure
+            </button>
+          </div>
+          <p class="help-text" style="margin-top: 4px; margin-bottom: 0;">
+            Fixes washed out / overexposed camera without unplugging USB!
+          </p>
+        </section>
+
+        <!-- Living Room Safe Play-Zone Boundaries -->
+        <section class="lab-section">
+          <h3>🛋️ Living Room Safe-Zone Box</h3>
+          <p class="help-text">
+            Keep balloons, hats, and butterflies inside Emilia's safe rug area.
+          </p>
+
+          <label class="slider-label">
+            <span>Left / Right Side Margin</span>
+            <span id="val-side-margin">8%</span>
+          </label>
+          <input type="range" id="slider-side-margin" min="2" max="30" value="8" />
+
+          <label class="slider-label">
+            <span>Floor Height Margin</span>
+            <span id="val-floor-margin">8%</span>
+          </label>
+          <input type="range" id="slider-floor-margin" min="2" max="28" value="8" />
+
+          <label class="checkbox-label">
+            <input type="checkbox" id="chk-show-safezone" />
+            Show Safe-Zone Dashed Border on TV
+          </label>
+        </section>
+
+        <!-- Kid Forgiveness & Physics -->
+        <section class="lab-section">
+          <h3>🎈 Kid Forgiveness &amp; Physics</h3>
+
+          <label class="slider-label">
+            <span>Hand &amp; Head Hitbox Forgiveness</span>
+            <span id="val-hitbox-mult">1.4x</span>
+          </label>
+          <input type="range" id="slider-hitbox-mult" min="0.8" max="2.2" step="0.1" value="1.4" />
+
+          <label class="slider-label">
+            <span>Balloon Floatiness (Gravity)</span>
+            <span id="val-gravity">Floaty (0.9x)</span>
+          </label>
+          <input type="range" id="slider-gravity" min="0.5" max="1.6" step="0.1" value="0.9" />
+
+          <label class="checkbox-label">
+            <input type="checkbox" id="chk-forgiving-floor" checked />
+            Toddler Mode: Floor Bounces Balloon Without Losing Streak
+          </label>
+
+          <label class="checkbox-label">
+            <input type="checkbox" id="chk-hide-video" />
+            Cartoon Backdrop Only (Hide Live Camera in Avatar Mode)
+          </label>
+        </section>
+
+        <!-- Live Hardware Telemetry -->
+        <section class="lab-section telemetry-card">
+          <h3>📡 Live Webcam &amp; Pose Telemetry</h3>
+          <div class="telemetry-grid">
+            <div class="stat-item">
+              <span class="stat-label">Stream Res:</span>
+              <span id="stat-res" class="stat-val">—</span>
+            </div>
+            <div class="stat-item">
+              <span class="stat-label">Aspect Ratio:</span>
+              <span id="stat-aspect" class="stat-val">—</span>
+            </div>
+            <div class="stat-item">
+              <span class="stat-label">FPS / AI Lag:</span>
+              <span id="stat-fps" class="stat-val">—</span>
+            </div>
+            <div class="stat-item">
+              <span class="stat-label">Hitbox Radius:</span>
+              <span id="stat-hitbox" class="stat-val">—</span>
+            </div>
+          </div>
+          <div class="distance-pill">
+            <span>📏 Detected Setup:</span>
+            <strong id="stat-distance">Waiting for player...</strong>
+          </div>
+        </section>
+
+        <!-- Persistent Diagnostic & Crash Logs -->
+        <section class="lab-section">
+          <h3>📋 Diagnostics &amp; Crash Logs</h3>
+          <p class="help-text">
+            Captures game state, errors, and memory status directly to the Shield TV disk.
+          </p>
+          <div class="stat-item" style="margin-bottom: 8px;">
+            <span class="stat-label">Memory Status:</span>
+            <span id="stat-mem" class="stat-val">—</span>
+          </div>
+          <div class="remote-grid">
+            <button id="btn-view-logs" class="btn btn-blue">📜 View Logs</button>
+            <button id="btn-clear-logs" class="btn btn-slate">🗑️ Clear</button>
+          </div>
+          <div id="log-viewer-container" class="hidden" style="margin-top: 8px;">
+            <pre id="log-viewer-text" class="log-console"></pre>
+          </div>
+          <p class="help-text" style="margin-top: 8px; font-size: 0.72rem; word-break: break-all;">
+            <strong>Pull with ADB:</strong><br />
+            <code>adb pull /sdcard/Android/data/com.emiliago.app/files/emiliago_diagnostic.log .</code>
+          </p>
+        </section>
+      </aside>
+
+      <!-- Startup / Status Toast -->
+      <div id="status-toast" class="hidden"></div>
+    </div>
+
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>

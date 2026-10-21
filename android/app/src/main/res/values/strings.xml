@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">EmiliaGO</string>
+    <string name="title_activity_main">EmiliaGO</string>
+    <string name="package_name">com.emiliago.app</string>
+    <string name="custom_url_scheme">com.emiliago.app</string>
+</resources>
