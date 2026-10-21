@@ -288,6 +288,7 @@ butterflyGame.onMilestone = () => triggerMilestoneCelebration(false);
 posesGame.onMilestone = () => triggerMilestoneCelebration(false);
 danceGame.onMilestone = () => triggerMilestoneCelebration(false);
 disasterGame.onMilestone = () => triggerMilestoneCelebration(false);
+disasterGame.onReturnToHub = () => switchScreen('hub');
 
 // Award/upgrade Chest Badge (Bronze -> Silver -> Gold -> Bottom Diamond -> 10-Diamond Fireworks!)
 hatGame.onLevelComplete = () => {

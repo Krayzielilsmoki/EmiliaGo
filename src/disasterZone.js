@@ -73,6 +73,21 @@ export class DisasterZoneGame {
 
     this.avatar = null;
     this.onMilestone = null;
+    this.onReturnToHub = null;
+
+    // Game Over Tracking & 5-Second Failure Timers
+    this.waterDangerTimer = 0;
+    this.lavaDangerTimer = 0;
+    this.gameOverReason = null; // 'water' | 'lava' | 'trex'
+    this.gameOverHoldProgress = 0; // Try Again button hold progress
+    this.gameOverTickStep = -1;
+    this.gameOverHomeHoldProgress = 0; // Return to Hub button hold progress
+    this.gameOverHomeTickStep = -1;
+
+    // Zero-GC Pre-Allocated Typed Buffers for High-Performance Water Rendering
+    this._wavePointsX = new Float32Array(160);
+    this._wavePointsY = new Float32Array(160);
+    this._wavePointCount = 0;
 
     // Initialize decorative speed lines
     for (let i = 0; i < 36; i++) {
@@ -117,6 +132,13 @@ export class DisasterZoneGame {
     this.totalRounds = 10;
     this.currentRound = 0;
     this.waterRatio = 0.55;
+    this.waterDangerTimer = 0;
+    this.lavaDangerTimer = 0;
+    this.gameOverReason = null;
+    this.gameOverHoldProgress = 0;
+    this.gameOverTickStep = -1;
+    this.gameOverHomeHoldProgress = 0;
+    this.gameOverHomeTickStep = -1;
     this.waterSplashes = [];
     this.waterRipples = [];
     this.blizzardSnowballCount = 0;
@@ -148,6 +170,11 @@ export class DisasterZoneGame {
     this.snowballs = [];
     this.waterSplashes = [];
     this.waterRipples = [];
+    this.waterDangerTimer = 0;
+    this.lavaDangerTimer = 0;
+    this.gameOverReason = null;
+    this.gameOverHoldProgress = 0;
+    this.gameOverHomeHoldProgress = 0;
     this.freezeCracks = null;
     this.freezeShards = [];
     this.lavaBubbles = [];
@@ -157,6 +184,25 @@ export class DisasterZoneGame {
     this.victoryRockets = [];
     this.victoryConfetti = [];
     this.playAgainHoldProgress = 0;
+  }
+
+  triggerGameOver(reason) {
+    if (this.phase === 'gameover') return;
+    sound.stopLavaClip();
+    sound.playFailClip(true);
+    this.phase = 'gameover';
+    this.gameOverReason = reason;
+    this.phaseStartTime = performance.now();
+    this.phaseDuration = 999;
+    this.gameOverHoldProgress = 0;
+    this.gameOverTickStep = -1;
+    this.gameOverHomeHoldProgress = 0;
+    this.gameOverHomeTickStep = -1;
+
+    // Trigger visual avatar sadness / yellow aura
+    if (this.avatar && this.avatar.triggerYellowFlash) {
+      this.avatar.triggerYellowFlash(3.5, reason);
+    }
   }
 
   startTransitionPhase() {
@@ -181,6 +227,8 @@ export class DisasterZoneGame {
     this.phaseDuration = this.currentHazard.defaultDuration;
     this.hazardFailed = false;
     this.isPlayerSafe = true;
+    this.waterDangerTimer = 0;
+    this.lavaDangerTimer = 0;
     this.waterRatio = 0.55;
     this.waterSplashes = [];
     this.waterRipples = [];
@@ -616,6 +664,12 @@ export class DisasterZoneGame {
       return;
     }
 
+    // 0.5. GAME OVER PHASE
+    if (this.phase === 'gameover') {
+      this._updateGameOverPhase(dt, safeBounds, player, pointer);
+      return;
+    }
+
     // 1. TRANSITION PHASE (Player calibration)
     if (this.phase === 'transition') {
       if (activePlayers.length > 0) {
@@ -706,13 +760,19 @@ export class DisasterZoneGame {
 
         this.isPlayerSafe = !inLavaWithoutJumping;
 
-        // Visual Feedback: If standing still in lava, player face is sad and flashes yellow!
+        // Visual Feedback & 5-Second Failure Timer:
         if (inLavaWithoutJumping) {
+          this.lavaDangerTimer += dt;
           if (this.avatar) {
             this.avatar.triggerYellowFlash(0.3, 'lava');
           }
+          if (this.lavaDangerTimer >= 5.0) {
+            this.triggerGameOver('lava');
+            return;
+          }
         } else {
-          // If jumping or on couch, clear lava warning so avatar smiles happily
+          // If jumping or on couch, smoothly clear lava danger timer
+          this.lavaDangerTimer = Math.max(0, this.lavaDangerTimer - dt * 3.5);
           if (this.avatar && this.avatar.sadReason === 'lava') {
             this.avatar.sadTimer = 0;
           }
@@ -803,7 +863,24 @@ export class DisasterZoneGame {
 
         // Player is safe whenever the water surface stays below chin/head level!
         const currentWaterTop = safeBounds.bottom - safeBounds.height * this.waterRatio;
-        this.isPlayerSafe = currentWaterTop >= playerNeckY;
+        const isSubmerged = currentWaterTop < playerNeckY;
+        this.isPlayerSafe = !isSubmerged;
+
+        if (isSubmerged) {
+          this.waterDangerTimer += dt;
+          if (this.avatar) {
+            this.avatar.triggerYellowFlash(0.3, 'water');
+          }
+          if (this.waterDangerTimer >= 5.0) {
+            this.triggerGameOver('water');
+            return;
+          }
+        } else {
+          this.waterDangerTimer = Math.max(0, this.waterDangerTimer - dt * 3.0);
+          if (this.avatar && this.avatar.sadReason === 'water') {
+            this.avatar.sadTimer = 0;
+          }
+        }
 
         // Update active splashes
         for (let i = this.waterSplashes.length - 1; i >= 0; i--) {
@@ -947,7 +1024,8 @@ export class DisasterZoneGame {
           }
 
           // Detect Ducking under the Snowman
-          let isDucking = false;
+          // Flying snowman travels horizontally across at altitude sm.y = safeBounds.top + safeBounds.height * 0.40.
+          // Bottom boundary of snowman is sm.y + 65.
           let playerHeadX = cx;
           let playerHeadY = 999;
 
@@ -955,46 +1033,25 @@ export class DisasterZoneGame {
             for (const pObj of activePlayers) {
               const head = pObj.colliders?.head;
               const lms = pObj.landmarksCanvas;
-              if (head) {
+              if (head && head.visibility > 0.25) {
                 playerHeadX = head.x;
                 playerHeadY = head.y;
               } else if (lms && lms[0]) {
                 playerHeadX = lms[0].x;
                 playerHeadY = lms[0].y;
               }
-
-              // 1. Shoulders drop below standing baseline
-              if (lms && lms[11] && lms[12]) {
-                const shoulderY = (lms[11].y + lms[12].y) / 2;
-                if (shoulderY > this.baselineShoulderY + 25) {
-                  isDucking = true;
-                }
-              }
-              // 2. Head drops below baseline
-              if (playerHeadY > this.baselineShoulderY - 10) {
-                isDucking = true;
-              }
-              // 3. Head is below flying snowman altitude (sm.y + 10)
-              if (playerHeadY > sm.y + 10) {
-                isDucking = true;
-              }
             }
           }
-          if (pointer && pointer.active && pointer.y > sm.y + 15) {
-            isDucking = true;
+          if (pointer && pointer.active) {
+            playerHeadX = pointer.x;
+            playerHeadY = pointer.y;
           }
 
-          // Proximity collision / dodge check (wider for 2x bigger snowman)
-          const distToPlayer = Math.abs(sm.x - playerHeadX);
-          if (distToPlayer < 140) {
-            if (isDucking) {
-              if (!sm.dodged && !sm.hitPlayer) {
-                sm.dodged = true;
-                this.score += 2;
-                sound.playWindGust();
-                this.spawnFloatingText(sm.x, sm.y - 75, '💨 DUCKED UNDER! ⛄ +2 ⭐', '#4ADE80');
-              }
-            } else {
+          // Horizontal collision overlap window with snowman
+          const overlapDist = Math.abs(sm.x - playerHeadX);
+          if (overlapDist < 85) {
+            // Player's head is UP in the snowman's trajectory (she did NOT duck under):
+            if (playerHeadY < sm.y + 65) {
               if (!sm.hitPlayer && !sm.dodged) {
                 sm.hitPlayer = true;
                 this.hazardFailed = true;
@@ -1005,6 +1062,14 @@ export class DisasterZoneGame {
                 this.spawnSnowBurst(sm.x, sm.y, 40);
                 this.spawnFloatingText(sm.x, sm.y - 75, '❄️ BONK! DUCK NEXT TIME! 🤪', '#FACC15');
               }
+            }
+          } else if (sm.x < playerHeadX - 85) {
+            // Snowman has flown cleanly past player:
+            if (!sm.dodged && !sm.hitPlayer) {
+              sm.dodged = true;
+              this.score += 2;
+              sound.playWindGust();
+              this.spawnFloatingText(playerHeadX, sm.y - 75, '💨 DUCKED UNDER! ⛄ +2 ⭐', '#4ADE80');
             }
           }
         }
@@ -1126,64 +1191,55 @@ export class DisasterZoneGame {
 
         // Smooth running speed detection
         this.tRex.runSpeedSmooth = this.tRex.runSpeedSmooth * 0.82 + runSpeed * 0.18;
-        const isRunning = this.tRex.runSpeedSmooth > 20;
+        const spd = this.tRex.runSpeedSmooth;
+        const isRunning = spd > 26;
         this.isPlayerSafe = isRunning;
 
         // Ground level for T-Rex
         this.tRex.y = safeBounds.bottom - 45;
 
         // Animate legs, mouth chomping, and flash timer
-        this.tRex.legPhase += dt * (isRunning ? 13 : 9);
+        this.tRex.legPhase += dt * (spd > 15 ? 13 : 9);
         this.tRex.mouthPhase += dt * (this.tRex.caughtPlayer ? 16 : 8);
 
         if (this.tRex.flashTimer > 0) {
           this.tRex.flashTimer = Math.max(0, this.tRex.flashTimer - dt);
         }
 
-        // T-Rex Position Dynamics:
-        // - When player keeps moving: T-Rex recesses back towards the left screen edge!
-        // - When player slows down or stops: T-Rex charges closer towards the player!
-        // Recessing speed matches progression speed identically so he doesn't instantly snap back!
+        // Dynamic T-Rex Movement:
+        // - Inactive / stopped (< 10): T-Rex charges fast towards player (+250 px/s)
+        // - Moving slowly (10 <= spd < 26): T-Rex still closes in steadily (+130 to +40 px/s)
+        // - Moderate effort (26 <= spd < 38): T-Rex is held at bay (-35 px/s)
+        // - Very active running (spd >= 38): T-Rex is pushed into fast retreat (-180 to -300 px/s)
         const retreatX = safeBounds.left - 40;
         const snoutOffset = 135; // Snout tip reach relative to T-Rex anchor
-        const attackTargetX = minPlayerX - snoutOffset;
-        const dinoSpeed = 175; // Exact same steady speed forward and backward!
 
-        if (isRunning) {
-          this.tRex.targetX = retreatX;
-          this.tRex.x = Math.max(retreatX, this.tRex.x - dinoSpeed * dt);
-          if (this.tRex.x < safeBounds.left + 80) {
-            this.tRex.caughtPlayer = false; // Player escaped T-Rex!
-          }
+        let dinoVelocity = 0;
+        if (spd < 10) {
+          dinoVelocity = 250;
+        } else if (spd < 26) {
+          const t = (spd - 10) / 16;
+          dinoVelocity = 130 * (1 - t) + 40;
+        } else if (spd < 38) {
+          dinoVelocity = -35;
         } else {
-          this.tRex.targetX = attackTargetX;
-          if (this.tRex.x < attackTargetX) {
-            this.tRex.x = Math.min(attackTargetX, this.tRex.x + dinoSpeed * dt);
-          } else {
-            this.tRex.x = attackTargetX;
-          }
+          const boost = Math.min(120, (spd - 38) * 8);
+          dinoVelocity = -180 - boost;
         }
 
-        // Snout collision check with player
+        this.tRex.x += dinoVelocity * dt;
+        if (this.tRex.x < retreatX) {
+          this.tRex.x = retreatX;
+          this.tRex.caughtPlayer = false;
+        }
+
+        // Snout collision check with player -> GAME OVER!
         const tRexSnoutX = this.tRex.x + snoutOffset;
         if (tRexSnoutX >= minPlayerX - 10) {
-          if (!this.tRex.caughtPlayer) {
-            this.tRex.caughtPlayer = true;
-            this.tRex.flashTimer = 1.6;
-            this.hazardFailed = true;
-
-            // Flash player yellow on tag!
-            if (this.avatar && this.avatar.triggerYellowFlash) {
-              this.avatar.triggerYellowFlash(1.8, 'dino');
-            }
-
-            this.spawnFloatingText(
-              Math.min(safeBounds.right - 120, minPlayerX + 60),
-              safeBounds.bottom - 220,
-              '🦖 CHOMP! KEEP RUNNING! 🏃‍♀️💨',
-              '#FACC15'
-            );
-          }
+          this.tRex.caughtPlayer = true;
+          this.tRex.x = minPlayerX - snoutOffset;
+          this.triggerGameOver('trex');
+          return;
         }
 
         // Running dust puffs kicked up by T-Rex stomping feet
@@ -1302,12 +1358,22 @@ export class DisasterZoneGame {
     if (this.phase === 'victory') {
       this._drawGrandVictoryScreen(ctx, canvasWidth, canvasHeight, safeBounds);
 
+    // 0.5. Kid-Friendly Game Over Screen
+    } else if (this.phase === 'gameover') {
+      this._drawGameOverScreen(ctx, canvasWidth, canvasHeight, safeBounds);
+
     // 1. Render Active Hazard Visuals
     } else if (this.phase === 'active') {
       if (this.currentHazard.id === 'lava1' || this.currentHazard.id === 'lava2') {
         this._drawLavaFloor(ctx, canvasWidth, canvasHeight, safeBounds);
+        if (this.lavaDangerTimer > 0.5) {
+          this._drawHazardDangerAlert(ctx, safeBounds, 'lava', this.lavaDangerTimer, 5.0);
+        }
       } else if (this.currentHazard.id === 'water') {
         this._drawRisingFlood(ctx, canvasWidth, canvasHeight);
+        if (this.waterDangerTimer > 0.5) {
+          this._drawHazardDangerAlert(ctx, safeBounds, 'water', this.waterDangerTimer, 5.0);
+        }
       } else if (this.currentHazard.id === 'freeze') {
         this._drawBlizzardFreeze(ctx, canvasWidth, canvasHeight);
       } else if (this.currentHazard.id === 'blizzard') {
@@ -1664,12 +1730,9 @@ export class DisasterZoneGame {
     ctx.save();
 
     // 1. Underwater Caustic Sunlight Beams
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.08)';
     for (let i = 0; i < 6; i++) {
       const rx = (cw * (0.12 + i * 0.16) + Math.sin(this.animTime * 1.5 + i) * 35);
-      const rGrad = ctx.createLinearGradient(rx, waterTop, rx + 45, ch);
-      rGrad.addColorStop(0, 'rgba(255, 255, 255, 0.14)');
-      rGrad.addColorStop(1, 'rgba(255, 255, 255, 0.0)');
-      ctx.fillStyle = rGrad;
       ctx.beginPath();
       ctx.moveTo(rx - 20, waterTop);
       ctx.lineTo(rx + 25, waterTop);
@@ -1693,7 +1756,7 @@ export class DisasterZoneGame {
     ctx.fillStyle = 'rgba(2, 132, 199, 0.38)';
     ctx.fill();
 
-    // 3. Foreground Main Wave Layer (Vibrant tropical water across full screen width)
+    // 3. Foreground Main Wave Layer (Vibrant tropical water across full screen width - zero heap allocations!)
     const frontGrad = ctx.createLinearGradient(0, waterTop, 0, ch);
     frontGrad.addColorStop(0, 'rgba(56, 189, 248, 0.84)');
     frontGrad.addColorStop(0.35, 'rgba(14, 116, 144, 0.92)');
@@ -1701,12 +1764,17 @@ export class DisasterZoneGame {
 
     ctx.beginPath();
     ctx.moveTo(-120, ch + 50);
-    const wavePoints = [];
+    let ptIdx = 0;
     for (let x = -120; x <= cw + 120; x += step) {
       const fwy = waterTop + Math.sin(this.animTime * 5.4 + x * 0.018) * 13 + Math.cos(this.animTime * 3.8 + x * 0.028) * 6;
-      wavePoints.push({ x, y: fwy });
+      if (ptIdx < this._wavePointsX.length) {
+        this._wavePointsX[ptIdx] = x;
+        this._wavePointsY[ptIdx] = fwy;
+        ptIdx++;
+      }
       ctx.lineTo(x, fwy);
     }
+    this._wavePointCount = ptIdx;
     ctx.lineTo(cw + 120, ch + 50);
     ctx.lineTo(-120, ch + 50);
     ctx.closePath();
@@ -1715,9 +1783,9 @@ export class DisasterZoneGame {
 
     // 4. Pure Surface Wave Stroke (Spanning beyond both left and right screen borders)
     ctx.beginPath();
-    for (let i = 0; i < wavePoints.length; i++) {
-      if (i === 0) ctx.moveTo(wavePoints[i].x, wavePoints[i].y);
-      else ctx.lineTo(wavePoints[i].x, wavePoints[i].y);
+    for (let i = 0; i < this._wavePointCount; i++) {
+      if (i === 0) ctx.moveTo(this._wavePointsX[i], this._wavePointsY[i]);
+      else ctx.lineTo(this._wavePointsX[i], this._wavePointsY[i]);
     }
     ctx.strokeStyle = 'rgba(255, 255, 255, 0.95)';
     ctx.lineWidth = 4.5;
@@ -1726,12 +1794,13 @@ export class DisasterZoneGame {
 
     // 5. Sparkling Foam Bubbles on Wave Peaks
     ctx.fillStyle = '#FFFFFF';
-    for (let i = 1; i < wavePoints.length - 1; i += 3) {
-      const p = wavePoints[i];
-      if (p.y < waterTop + 2) {
+    for (let i = 1; i < this._wavePointCount - 1; i += 3) {
+      const px = this._wavePointsX[i];
+      const py = this._wavePointsY[i];
+      if (py < waterTop + 2) {
         ctx.beginPath();
-        ctx.arc(p.x, p.y - 1, 3.5, 0, Math.PI * 2);
-        ctx.arc(p.x + 6, p.y + 1, 2.5, 0, Math.PI * 2);
+        ctx.arc(px, py - 1, 3.5, 0, Math.PI * 2);
+        ctx.arc(px + 6, py + 1, 2.5, 0, Math.PI * 2);
         ctx.fill();
       }
     }
@@ -1742,31 +1811,35 @@ export class DisasterZoneGame {
     // 7. Bobbing Cartoon Rubber Ducky
     this._drawRubberDucky(ctx, cw, waterTop);
 
-    // 8. Expanding surface ripples from active hand splashing
-    for (const rp of this.waterRipples) {
+    // 8. Expanding surface ripples from active hand splashing (batched save/restore!)
+    if (this.waterRipples.length > 0) {
       ctx.save();
-      ctx.beginPath();
-      ctx.ellipse(rp.x, rp.y, rp.r, rp.r * 0.32, 0, 0, Math.PI * 2);
-      ctx.strokeStyle = `rgba(255, 255, 255, ${rp.alpha})`;
       ctx.lineWidth = 3;
-      ctx.stroke();
+      for (const rp of this.waterRipples) {
+        ctx.beginPath();
+        ctx.ellipse(rp.x, rp.y, rp.r, rp.r * 0.32, 0, 0, Math.PI * 2);
+        ctx.strokeStyle = `rgba(255, 255, 255, ${rp.alpha})`;
+        ctx.stroke();
+      }
       ctx.restore();
     }
 
-    // 9. Dynamic upward splashing droplets
-    for (const sp of this.waterSplashes) {
+    // 9. Dynamic upward splashing droplets (batched save/restore!)
+    if (this.waterSplashes.length > 0) {
       ctx.save();
-      ctx.globalAlpha = Math.max(0, sp.life / sp.maxLife);
-      ctx.fillStyle = sp.color;
-      ctx.beginPath();
-      ctx.arc(sp.x, sp.y, sp.r, 0, Math.PI * 2);
-      ctx.fill();
+      for (const sp of this.waterSplashes) {
+        ctx.globalAlpha = Math.max(0, sp.life / sp.maxLife);
+        ctx.fillStyle = sp.color;
+        ctx.beginPath();
+        ctx.arc(sp.x, sp.y, sp.r, 0, Math.PI * 2);
+        ctx.fill();
 
-      // Specular highlight on droplet
-      ctx.fillStyle = '#FFFFFF';
-      ctx.beginPath();
-      ctx.arc(sp.x - sp.r * 0.3, sp.y - sp.r * 0.3, sp.r * 0.35, 0, Math.PI * 2);
-      ctx.fill();
+        // Specular highlight on droplet
+        ctx.fillStyle = '#FFFFFF';
+        ctx.beginPath();
+        ctx.arc(sp.x - sp.r * 0.3, sp.y - sp.r * 0.3, sp.r * 0.35, 0, Math.PI * 2);
+        ctx.fill();
+      }
       ctx.restore();
     }
 
@@ -2676,6 +2749,567 @@ export class DisasterZoneGame {
     ctx.beginPath();
     ctx.arc(58, -118, 7.5, 0, Math.PI * 2);
     ctx.fill();
+
+    ctx.restore();
+  }
+
+  // ----------------------------------------------------
+  // KID-FRIENDLY GAME OVER SCREEN & RESTART INTERACTION
+  // ----------------------------------------------------
+  _updateGameOverPhase(dt, safeBounds, player, pointer) {
+    // 1. Update ambient floating text and particles
+    for (let i = this.floatingTexts.length - 1; i >= 0; i--) {
+      const ft = this.floatingTexts[i];
+      ft.y -= 35 * dt;
+      ft.life -= dt;
+      if (ft.life <= 0) this.floatingTexts.splice(i, 1);
+    }
+    for (let i = this.particles.length - 1; i >= 0; i--) {
+      const p = this.particles[i];
+      p.x += p.vx * dt;
+      p.y += p.vy * dt;
+      p.vy += (p.gravity || 0) * dt;
+      p.life -= dt;
+      if (p.life <= 0) this.particles.splice(i, 1);
+    }
+
+    const hands = this._collectHandColliders(player, pointer);
+    const cx = (safeBounds.left + safeBounds.right) / 2;
+    const cy = (safeBounds.top + safeBounds.bottom) / 2;
+    const cardY = cy - 430 / 2 - 10;
+    const btnY = cardY + 340;
+    const btnRadius = 50;
+
+    // A. TRY AGAIN BUTTON (Left)
+    const btnTryX = cx - 140;
+    let insideTry = false;
+    for (const h of hands) {
+      if (Math.hypot(btnTryX - h.x, btnY - h.y) < btnRadius + (h.r || 35) * 0.45) {
+        insideTry = true;
+        break;
+      }
+    }
+    if (pointer && pointer.clicked && Math.hypot(btnTryX - pointer.x, btnY - pointer.y) < btnRadius * 1.3) {
+      sound.playFanfare();
+      this.reset();
+      return;
+    }
+
+    if (insideTry) {
+      this.gameOverHoldProgress = Math.min(1.0, this.gameOverHoldProgress + dt / 1.8);
+      const step = Math.floor(this.gameOverHoldProgress * 5);
+      if (step > this.gameOverTickStep) {
+        this.gameOverTickStep = step;
+        sound.playCalibrationTick(this.gameOverHoldProgress);
+      }
+    } else {
+      this.gameOverHoldProgress = Math.max(0, this.gameOverHoldProgress - dt * 2.2);
+      if (this.gameOverHoldProgress === 0) this.gameOverTickStep = -1;
+    }
+
+    if (this.gameOverHoldProgress >= 1.0) {
+      sound.playFanfare();
+      this.reset();
+      return;
+    }
+
+    // B. HOME HUB BUTTON (Right)
+    const btnHomeX = cx + 140;
+    let insideHome = false;
+    for (const h of hands) {
+      if (Math.hypot(btnHomeX - h.x, btnY - h.y) < btnRadius + (h.r || 35) * 0.45) {
+        insideHome = true;
+        break;
+      }
+    }
+    if (pointer && pointer.clicked && Math.hypot(btnHomeX - pointer.x, btnY - pointer.y) < btnRadius * 1.3) {
+      sound.playFanfare();
+      if (this.onReturnToHub) this.onReturnToHub();
+      return;
+    }
+
+    if (insideHome) {
+      this.gameOverHomeHoldProgress = Math.min(1.0, this.gameOverHomeHoldProgress + dt / 1.8);
+      const step = Math.floor(this.gameOverHomeHoldProgress * 5);
+      if (step > this.gameOverHomeTickStep) {
+        this.gameOverHomeTickStep = step;
+        sound.playCalibrationTick(this.gameOverHomeHoldProgress);
+      }
+    } else {
+      this.gameOverHomeHoldProgress = Math.max(0, this.gameOverHomeHoldProgress - dt * 2.2);
+      if (this.gameOverHomeHoldProgress === 0) this.gameOverHomeTickStep = -1;
+    }
+
+    if (this.gameOverHomeHoldProgress >= 1.0) {
+      sound.playFanfare();
+      if (this.onReturnToHub) this.onReturnToHub();
+    }
+  }
+
+  _drawGameOverScreen(ctx, cw, ch, safeBounds) {
+    const cx = (safeBounds.left + safeBounds.right) / 2;
+    const cy = (safeBounds.top + safeBounds.bottom) / 2;
+
+    ctx.save();
+
+    // 1. Dark Vignette Scrim Backdrop
+    ctx.fillStyle = 'rgba(15, 23, 42, 0.85)';
+    ctx.fillRect(0, 0, cw, ch);
+
+    // 2. Rounded Main Card
+    const cardW = 680;
+    const cardH = 430;
+    const cardX = cx - cardW / 2;
+    const cardY = cy - cardH / 2 - 10;
+    const cardR = 28;
+
+    // Card shadow
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.45)';
+    ctx.beginPath();
+    ctx.roundRect(cardX + 6, cardY + 8, cardW, cardH, cardR);
+    ctx.fill();
+
+    // Card fill
+    ctx.fillStyle = 'rgba(30, 41, 59, 0.96)';
+    ctx.beginPath();
+    ctx.roundRect(cardX, cardY, cardW, cardH, cardR);
+    ctx.fill();
+
+    // Border tint based on hazard
+    let borderColor = '#FACC15';
+    if (this.gameOverReason === 'water') borderColor = '#38BDF8';
+    else if (this.gameOverReason === 'lava') borderColor = '#F97316';
+    else if (this.gameOverReason === 'trex') borderColor = '#4ADE80';
+
+    ctx.strokeStyle = borderColor;
+    ctx.lineWidth = 4;
+    ctx.stroke();
+
+    // 3. Top Banner Header
+    const bannerW = 340;
+    const bannerH = 46;
+    const bannerY = cardY - 22;
+    ctx.fillStyle = 'rgba(15, 23, 42, 0.95)';
+    ctx.strokeStyle = borderColor;
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.roundRect(cx - bannerW / 2, bannerY, bannerW, bannerH, bannerH / 2);
+    ctx.fill();
+    ctx.stroke();
+
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillStyle = '#FEF08A';
+    ctx.font = '900 22px system-ui, sans-serif';
+    ctx.fillText('🍪 OH, BISCUITS! 🍪', cx, bannerY + 23);
+
+    // 4. Hazard Specific Headline & Tip
+    let headline = 'NICE TRY, EMILIA!';
+    let tip = 'You did great! Let\'s give it another go!';
+    if (this.gameOverReason === 'water') {
+      headline = '🌊 SPLOOSH! WATER GOT TOO HIGH!';
+      tip = 'Splash your hands faster to keep the water below your chin!';
+    } else if (this.gameOverReason === 'lava') {
+      headline = '🔥 SIZZLE! FEET IN THE LAVA!';
+      tip = 'Keep jumping up and down or climb high on the couch!';
+    } else if (this.gameOverReason === 'trex') {
+      headline = '🦖 TAG! THE FRIENDLY DINO CAUGHT YA!';
+      tip = 'Run super fast in place to keep the dinosaur far away!';
+    }
+
+    ctx.fillStyle = '#FFFFFF';
+    ctx.font = '900 24px system-ui, sans-serif';
+    ctx.fillText(headline, cx, cardY + 54);
+
+    ctx.fillStyle = '#94A3B8';
+    ctx.font = '700 15px system-ui, sans-serif';
+    ctx.fillText(tip, cx, cardY + 82);
+
+    // 5. Center Cartoon Defeat Art
+    const artY = cardY + 165;
+    if (this.gameOverReason === 'water') {
+      this._drawGameOverWaterArt(ctx, cx, artY);
+    } else if (this.gameOverReason === 'lava') {
+      this._drawGameOverLavaArt(ctx, cx, artY);
+    } else {
+      this._drawGameOverTRexArt(ctx, cx, artY);
+    }
+
+    // 6. Score & Round Reached Pill
+    const pillY = cardY + 252;
+    ctx.fillStyle = 'rgba(15, 23, 42, 0.88)';
+    ctx.strokeStyle = '#64748B';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.roundRect(cx - 210, pillY, 420, 36, 18);
+    ctx.fill();
+    ctx.stroke();
+
+    ctx.fillStyle = '#FACC15';
+    ctx.font = '900 16px system-ui, sans-serif';
+    ctx.fillText(
+      `⭐ ROUND ${this.currentRound} / ${this.totalRounds} • ${this.score} STARS ⭐`,
+      cx,
+      pillY + 18
+    );
+
+    // 7. Interactive Buttons
+    const btnY = cardY + 340;
+    const btnRadius = 50;
+
+    // TRY AGAIN BUTTON (Left)
+    const btnTryX = cx - 140;
+    const isTryHovered = this.gameOverHoldProgress > 0;
+    const tryPulse = 1.0 + Math.sin(this.animTime * 4) * 0.05;
+
+    // Outer glow
+    ctx.beginPath();
+    ctx.arc(btnTryX, btnY, (btnRadius + 8) * tryPulse, 0, Math.PI * 2);
+    ctx.fillStyle = isTryHovered ? 'rgba(34, 197, 94, 0.40)' : 'rgba(34, 197, 94, 0.16)';
+    ctx.fill();
+
+    // Button disc
+    ctx.beginPath();
+    ctx.arc(btnTryX, btnY, btnRadius, 0, Math.PI * 2);
+    ctx.fillStyle = isTryHovered ? 'rgba(21, 128, 61, 0.96)' : 'rgba(15, 23, 42, 0.92)';
+    ctx.fill();
+    ctx.lineWidth = 3.5;
+    ctx.strokeStyle = isTryHovered ? '#4ADE80' : '#22C55E';
+    ctx.stroke();
+
+    // Icon
+    ctx.save();
+    ctx.translate(btnTryX, btnY - 11);
+    if (isTryHovered) ctx.rotate(this.gameOverHoldProgress * Math.PI * 2);
+    ctx.font = '28px system-ui, sans-serif';
+    ctx.fillText('🔄', 0, 0);
+    ctx.restore();
+
+    // Text
+    ctx.fillStyle = '#FFFFFF';
+    ctx.font = '900 12px system-ui, sans-serif';
+    ctx.fillText('TRY AGAIN', btnTryX, btnY + 16);
+    ctx.fillStyle = isTryHovered ? '#FEF08A' : '#86EFAC';
+    ctx.font = '800 10px system-ui, sans-serif';
+    ctx.fillText(isTryHovered ? 'HOLDING...' : 'HOLD ✋', btnTryX, btnY + 29);
+
+    // Hold Progress Ring
+    if (this.gameOverHoldProgress > 0) {
+      ctx.beginPath();
+      ctx.arc(
+        btnTryX,
+        btnY,
+        btnRadius + 6,
+        -Math.PI / 2,
+        -Math.PI / 2 + Math.PI * 2 * this.gameOverHoldProgress
+      );
+      ctx.strokeStyle = '#FACC15';
+      ctx.lineWidth = 7;
+      ctx.stroke();
+    }
+
+    // HOME HUB BUTTON (Right)
+    const btnHomeX = cx + 140;
+    const isHomeHovered = this.gameOverHomeHoldProgress > 0;
+    const homePulse = 1.0 + Math.sin(this.animTime * 4 + 1) * 0.05;
+
+    // Outer glow
+    ctx.beginPath();
+    ctx.arc(btnHomeX, btnY, (btnRadius + 8) * homePulse, 0, Math.PI * 2);
+    ctx.fillStyle = isHomeHovered ? 'rgba(56, 189, 248, 0.40)' : 'rgba(56, 189, 248, 0.16)';
+    ctx.fill();
+
+    // Button disc
+    ctx.beginPath();
+    ctx.arc(btnHomeX, btnY, btnRadius, 0, Math.PI * 2);
+    ctx.fillStyle = isHomeHovered ? 'rgba(14, 116, 144, 0.96)' : 'rgba(15, 23, 42, 0.92)';
+    ctx.fill();
+    ctx.lineWidth = 3.5;
+    ctx.strokeStyle = isHomeHovered ? '#38BDF8' : '#0284C7';
+    ctx.stroke();
+
+    // Icon
+    ctx.font = '28px system-ui, sans-serif';
+    ctx.fillText('🏠', btnHomeX, btnY - 11);
+
+    // Text
+    ctx.fillStyle = '#FFFFFF';
+    ctx.font = '900 12px system-ui, sans-serif';
+    ctx.fillText('HOME HUB', btnHomeX, btnY + 16);
+    ctx.fillStyle = isHomeHovered ? '#FEF08A' : '#7DD3FC';
+    ctx.font = '800 10px system-ui, sans-serif';
+    ctx.fillText(isHomeHovered ? 'HOLDING...' : 'HOLD ✋', btnHomeX, btnY + 29);
+
+    // Hold Progress Ring
+    if (this.gameOverHomeHoldProgress > 0) {
+      ctx.beginPath();
+      ctx.arc(
+        btnHomeX,
+        btnY,
+        btnRadius + 6,
+        -Math.PI / 2,
+        -Math.PI / 2 + Math.PI * 2 * this.gameOverHomeHoldProgress
+      );
+      ctx.strokeStyle = '#FACC15';
+      ctx.lineWidth = 7;
+      ctx.stroke();
+    }
+
+    ctx.restore();
+  }
+
+  // Cartoon Water Defeat Art
+  _drawGameOverWaterArt(ctx, cx, cy) {
+    ctx.save();
+    ctx.translate(cx, cy);
+
+    // Water pool
+    ctx.fillStyle = 'rgba(56, 189, 248, 0.35)';
+    ctx.beginPath();
+    ctx.ellipse(0, 32, 110, 24, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Floating rubber ducky
+    ctx.fillStyle = '#FACC15';
+    ctx.strokeStyle = '#CA8A04';
+    ctx.lineWidth = 3;
+    // Duck body
+    ctx.beginPath();
+    ctx.ellipse(0, 16, 32, 22, -0.08, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+
+    // Duck head
+    ctx.beginPath();
+    ctx.arc(-18, -2, 18, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+
+    // Orange bill
+    ctx.fillStyle = '#FB923C';
+    ctx.strokeStyle = '#EA580C';
+    ctx.beginPath();
+    ctx.ellipse(-36, 1, 10, 6, -0.15, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+
+    // Cute duck eye
+    ctx.fillStyle = '#0F172A';
+    ctx.beginPath();
+    ctx.arc(-22, -6, 3.5, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Silly swim goggles over duck
+    ctx.strokeStyle = '#38BDF8';
+    ctx.lineWidth = 3;
+    ctx.fillStyle = 'rgba(186, 230, 253, 0.65)';
+    ctx.beginPath();
+    ctx.arc(-18, -6, 9, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+
+    // Bubbles rising
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.75)';
+    ctx.strokeStyle = '#38BDF8';
+    ctx.lineWidth = 2;
+    [[-45, -20, 6], [28, -26, 8], [42, -44, 5], [-12, -48, 7]].forEach(([bx, by, br]) => {
+      ctx.beginPath();
+      ctx.arc(bx, by, br, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+    });
+
+    ctx.restore();
+  }
+
+  // Cartoon Lava Defeat Art
+  _drawGameOverLavaArt(ctx, cx, cy) {
+    ctx.save();
+    ctx.translate(cx, cy);
+
+    // Lava pool
+    ctx.fillStyle = 'rgba(249, 115, 22, 0.35)';
+    ctx.beginPath();
+    ctx.ellipse(0, 32, 110, 24, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Couch cushion
+    ctx.fillStyle = '#DC2626';
+    ctx.strokeStyle = '#991B1B';
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.roundRect(-42, 6, 84, 26, 8);
+    ctx.fill();
+    ctx.stroke();
+
+    // Toasted marshmallow on stick
+    ctx.strokeStyle = '#78350F';
+    ctx.lineWidth = 3.5;
+    ctx.beginPath();
+    ctx.moveTo(35, 20);
+    ctx.lineTo(-15, -45);
+    ctx.stroke();
+
+    // Marshmallow cylinder
+    ctx.fillStyle = '#FEF08A';
+    ctx.strokeStyle = '#CA8A04';
+    ctx.lineWidth = 2.5;
+    ctx.beginPath();
+    ctx.roundRect(-24, -40, 28, 24, 6);
+    ctx.fill();
+    ctx.stroke();
+
+    // Toasted top
+    ctx.fillStyle = '#92400E';
+    ctx.beginPath();
+    ctx.roundRect(-24, -40, 28, 7, 3);
+    ctx.fill();
+
+    // Silly face on marshmallow
+    ctx.fillStyle = '#0F172A';
+    ctx.beginPath();
+    ctx.arc(-16, -26, 2.5, 0, Math.PI * 2);
+    ctx.arc(-4, -26, 2.5, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = '#0F172A';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.arc(-10, -20, 4, 0, Math.PI);
+    ctx.stroke();
+
+    // Friendly little spark flame
+    ctx.fillStyle = '#F59E0B';
+    ctx.beginPath();
+    ctx.arc(38, -10, 10, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.restore();
+  }
+
+  // Cartoon T-Rex Defeat Art
+  _drawGameOverTRexArt(ctx, cx, cy) {
+    ctx.save();
+    ctx.translate(cx, cy);
+
+    // Baby T-Rex body
+    ctx.fillStyle = '#22C55E';
+    ctx.strokeStyle = '#15803D';
+    ctx.lineWidth = 3.5;
+
+    // Body
+    ctx.beginPath();
+    ctx.ellipse(0, 12, 28, 22, -0.1, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+
+    // Cute tail
+    ctx.beginPath();
+    ctx.moveTo(-20, 14);
+    ctx.quadraticCurveTo(-45, 10, -50, -4);
+    ctx.quadraticCurveTo(-40, 20, -14, 25);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+
+    // Head
+    ctx.beginPath();
+    ctx.roundRect(4, -30, 36, 28, 10);
+    ctx.fill();
+    ctx.stroke();
+
+    // Big happy eye
+    ctx.fillStyle = '#FFFFFF';
+    ctx.beginPath();
+    ctx.arc(26, -20, 8, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+
+    ctx.fillStyle = '#0F172A';
+    ctx.beginPath();
+    ctx.arc(28, -20, 4.5, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Cheerful mouth & cute teeth
+    ctx.fillStyle = '#FFFFFF';
+    ctx.beginPath();
+    ctx.arc(28, -8, 6, 0, Math.PI);
+    ctx.fill();
+    ctx.stroke();
+
+    // Little arms holding a giant cookie
+    ctx.fillStyle = '#D97706';
+    ctx.strokeStyle = '#92400E';
+    ctx.lineWidth = 2.5;
+    ctx.beginPath();
+    ctx.arc(14, 8, 14, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+
+    // Chocolate chips on cookie
+    ctx.fillStyle = '#451A03';
+    [[-4, -2], [3, -5], [1, 4], [-5, 5], [6, 1]].forEach(([ox, oy]) => {
+      ctx.beginPath();
+      ctx.arc(14 + ox, 8 + oy, 2.2, 0, Math.PI * 2);
+      ctx.fill();
+    });
+
+    // Party hat on baby T-Rex
+    ctx.fillStyle = '#EC4899';
+    ctx.strokeStyle = '#BE185D';
+    ctx.lineWidth = 2.5;
+    ctx.beginPath();
+    ctx.moveTo(12, -28);
+    ctx.lineTo(20, -50);
+    ctx.lineTo(28, -28);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+    // Yellow pom-pom on hat
+    ctx.fillStyle = '#FACC15';
+    ctx.beginPath();
+    ctx.arc(20, -52, 4.5, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.restore();
+  }
+
+  // Overhead danger alert pill with 5-second countdown & progress meter
+  _drawHazardDangerAlert(ctx, safeBounds, type, elapsed, maxTime) {
+    const remain = Math.max(0, maxTime - elapsed);
+    const progress = Math.min(1.0, elapsed / maxTime);
+    const cx = (safeBounds.left + safeBounds.right) / 2;
+    const pillW = 460;
+    const pillH = 46;
+    const pillY = safeBounds.top + 72;
+
+    ctx.save();
+
+    // Pulsing danger aura
+    const pulse = Math.sin(this.animTime * 14) * 0.15;
+    ctx.fillStyle = `rgba(239, 68, 68, ${0.82 + pulse})`;
+    ctx.strokeStyle = '#FEF08A';
+    ctx.lineWidth = 3.5;
+    ctx.beginPath();
+    ctx.roundRect(cx - pillW / 2, pillY, pillW, pillH, pillH / 2);
+    ctx.fill();
+    ctx.stroke();
+
+    // Danger fill bar inside bottom of pill
+    const barW = (pillW - 36) * progress;
+    ctx.fillStyle = '#FEF08A';
+    ctx.beginPath();
+    ctx.roundRect(cx - (pillW - 36) / 2, pillY + pillH - 8, barW, 4, 2);
+    ctx.fill();
+
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillStyle = '#FFFFFF';
+    ctx.font = '900 18px system-ui, sans-serif';
+    if (type === 'water') {
+      ctx.fillText(`⚠️ WATER ABOVE CHIN! SPLASH! ${remain.toFixed(1)}s 🌊`, cx, pillY + 21);
+    } else {
+      ctx.fillText(`🔥 FEET IN LAVA! JUMP OR CLIMB! ${remain.toFixed(1)}s 🦘`, cx, pillY + 21);
+    }
 
     ctx.restore();
   }
