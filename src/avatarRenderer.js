@@ -506,6 +506,8 @@ export class AvatarRenderer {
     const msg =
       this.sadReason === 'snowball'
         ? `❄️ SNOWBALL HIT! 🥶 (${Math.ceil(this.sadTimer)}s)`
+        : this.sadReason === 'lava'
+        ? `🔥 FEET IN LAVA! JUMP! 🦘`
         : `OUCH! BUZZY BEE! 🐝 (${Math.ceil(this.sadTimer)}s)`;
     ctx.strokeText(msg, x, y - r * 1.25);
     ctx.fillStyle = '#FACC15';

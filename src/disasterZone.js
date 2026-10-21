@@ -659,34 +659,82 @@ export class DisasterZoneGame {
           if (b.life <= 0) this.lavaBubbles.splice(i, 1);
         }
 
-        // Safe if: ankles/feet are above lava line, OR feet tucked on couch, OR hip height raised!
-        let safe = true;
+        // Active Jumping Detection (vertical hip / body oscillation)
+        let isJumping = false;
         if (activePlayers.length > 0) {
           for (const pObj of activePlayers) {
             const lms = pObj.landmarksCanvas;
             if (!lms) continue;
             const hipY = lms[23] && lms[24] ? (lms[23].y + lms[24].y) / 2 : 0;
-            const hipRaised = hipY < this.baselineHipY - 22;
+            if (this._lastHipY !== undefined && hipY > 0) {
+              const dy = Math.abs(hipY - this._lastHipY);
+              // Moving up and down vigorously or active motion speed
+              if (dy > 4.2 || (pObj.motionSpeed && pObj.motionSpeed > 22)) {
+                this._jumpGraceTimer = 0.55; // Grace window per jump bounce
+              }
+            }
+            this._lastHipY = hipY;
+          }
+        }
+        if (this._jumpGraceTimer > 0) {
+          this._jumpGraceTimer -= dt;
+          isJumping = true;
+        }
+
+        // Safe if:
+        // 1. Actively jumping up and down (trying to get out of the lava), OR
+        // 2. Completely out of the lava (feet above lava line / tucked on couch / hips raised)!
+        let inLavaWithoutJumping = false;
+        if (activePlayers.length > 0) {
+          for (const pObj of activePlayers) {
+            const lms = pObj.landmarksCanvas;
+            if (!lms) continue;
+            const hipY = lms[23] && lms[24] ? (lms[23].y + lms[24].y) / 2 : 0;
+            const hipRaised = hipY < this.baselineHipY - 24;
             const lFoot = lms[27];
             const rFoot = lms[28];
-            const feetHiddenOrUp =
-              !lFoot ||
-              !rFoot ||
-              (lFoot.visibility < 0.45 && rFoot.visibility < 0.45) ||
-              (lFoot.y < lavaLineY && rFoot.y < lavaLineY);
+            const feetOutOfLava =
+              (lFoot && lFoot.y < lavaLineY && rFoot && rFoot.y < lavaLineY) ||
+              ((!lFoot || lFoot.visibility < 0.45) && (!rFoot || rFoot.visibility < 0.45));
 
-            if (!hipRaised && !feetHiddenOrUp) {
-              safe = false;
+            const completelyOut = hipRaised || feetOutOfLava;
+            if (!completelyOut && !isJumping) {
+              inLavaWithoutJumping = true;
             }
           }
         }
-        this.isPlayerSafe = safe;
+
+        this.isPlayerSafe = !inLavaWithoutJumping;
+
+        // Visual Feedback: If standing still in lava, player face is sad and flashes yellow!
+        if (inLavaWithoutJumping) {
+          if (this.avatar) {
+            this.avatar.triggerYellowFlash(0.3, 'lava');
+          }
+        } else {
+          // If jumping or on couch, clear lava warning so avatar smiles happily
+          if (this.avatar && this.avatar.sadReason === 'lava') {
+            this.avatar.sadTimer = 0;
+          }
+        }
 
       // ----------------------------------------------------
       // B) WATER (Floor is Water - 31s)
-      // Water rises up to 85% of screen; splashing pushes it down to MIDDLE (50%)!
+      // Moving hands automatically clamps water BELOW player's head level!
       // ----------------------------------------------------
       } else if (this.currentHazard.id === 'water') {
+        // Track player's chin/neck level so water stays below player's head without tilting camera
+        let playerNeckY = safeBounds.top + safeBounds.height * 0.42;
+        if (activePlayers.length > 0) {
+          const p0 = activePlayers[0];
+          if (p0.colliders?.head && p0.colliders.head.visibility > 0.25) {
+            playerNeckY = p0.colliders.head.y + p0.colliders.head.r * 1.05;
+          } else if (p0.landmarksCanvas && p0.landmarksCanvas[11] && p0.landmarksCanvas[12]) {
+            playerNeckY = (p0.landmarksCanvas[11].y + p0.landmarksCanvas[12].y) / 2;
+          }
+        }
+        this._lastPlayerNeckY = playerNeckY;
+
         const waterTop = safeBounds.bottom - safeBounds.height * this.waterRatio;
 
         let wavePower = 0;
@@ -700,7 +748,7 @@ export class DisasterZoneGame {
               wavePower += spd;
 
               // Moving hands trigger dynamic water ripples and energetic splash droplets!
-              if (spd > 6) {
+              if (spd > 5) {
                 // Expanding water surface ripples
                 if (Math.random() < 0.38 && this.waterRipples.length < 18) {
                   this.waterRipples.push({
@@ -737,15 +785,25 @@ export class DisasterZoneGame {
         }
         if (pointer && pointer.active) wavePower += 24;
 
-        // Rise and recess at the same steady, balanced speed!
-        const waterSpeed = 0.11; // ~3.3s sweep between 0.48 (middle) and 0.85 (high)
-        if (wavePower <= 6) {
+        // Calculate safe water ratio (holding water 25px below player's chin)
+        const targetSafeWaterTop = playerNeckY + 25;
+        const maxSafeWaterRatio = Math.max(0.20, (safeBounds.bottom - targetSafeWaterTop) / safeBounds.height);
+
+        const waterSpeed = 0.13;
+        if (wavePower <= 5) {
+          // If NOT splashing, water rises up towards the head/room top (up to 85%)!
           this.waterRatio = Math.min(0.85, this.waterRatio + waterSpeed * dt);
         } else {
-          // Splashing actively drives water down to middle of screen (0.48) at the exact same rate!
-          this.waterRatio = Math.max(0.48, this.waterRatio - waterSpeed * dt);
+          // Splashing actively drives water down and locks it safely below the player's head!
+          const targetWaterRatio = Math.min(0.42, maxSafeWaterRatio);
+          if (this.waterRatio > targetWaterRatio) {
+            this.waterRatio = Math.max(targetWaterRatio, this.waterRatio - waterSpeed * 1.8 * dt);
+          }
         }
-        this.isPlayerSafe = this.waterRatio < 0.74;
+
+        // Player is safe whenever the water surface stays below chin/head level!
+        const currentWaterTop = safeBounds.bottom - safeBounds.height * this.waterRatio;
+        this.isPlayerSafe = currentWaterTop >= playerNeckY;
 
         // Update active splashes
         for (let i = this.waterSplashes.length - 1; i >= 0; i--) {
@@ -852,14 +910,15 @@ export class DisasterZoneGame {
           });
         }
 
-        // Check for Flying Snowman event towards the end of Blizzard (at ~9.0s when audio shouts "DUCK!")
+        // Check for Flying Snowman event towards the end of Blizzard (at ~8.8s when audio shouts "DUCK!")
         const elapsedBlizzard = (performance.now() - this.phaseStartTime) / 1000;
         if (elapsedBlizzard >= 8.8 && !this.flyingSnowman && this.blizzardSnowballCount >= 3) {
-          const spawnY = safeBounds.top + safeBounds.height * 0.26;
+          // Moved lower (at 40% height) directly across standing head/chest level so player must duck!
+          const spawnY = safeBounds.top + safeBounds.height * 0.40;
           this.flyingSnowman = {
-            x: safeBounds.right + 140,
+            x: safeBounds.right + 180,
             y: spawnY,
-            speed: (safeBounds.width + 320) / 2.7, // crosses screen in 2.7 seconds!
+            speed: (safeBounds.width + 360) / 2.7, // crosses screen in 2.7 seconds!
             animTime: 0,
             dodged: false,
             hitPlayer: false,
@@ -875,11 +934,11 @@ export class DisasterZoneGame {
           // Frost / snow sparkle particle trail behind flying snowman
           if (this.particles.length < 45 && Math.random() < 0.65) {
             this.particles.push({
-              x: sm.x + 35 + (Math.random() - 0.5) * 15,
-              y: sm.y + (Math.random() - 0.5) * 25,
-              vx: 110 + Math.random() * 80,
-              vy: -20 + (Math.random() - 0.5) * 40,
-              r: 3 + Math.random() * 4,
+              x: sm.x + 55 + (Math.random() - 0.5) * 20,
+              y: sm.y + (Math.random() - 0.5) * 35,
+              vx: 130 + Math.random() * 90,
+              vy: -20 + (Math.random() - 0.5) * 45,
+              r: 4 + Math.random() * 5,
               color: Math.random() < 0.5 ? '#BAE6FD' : '#FFFFFF',
               gravity: 40,
               life: 0.45,
@@ -887,42 +946,53 @@ export class DisasterZoneGame {
             });
           }
 
-          // Detect Ducking
+          // Detect Ducking under the Snowman
           let isDucking = false;
           let playerHeadX = cx;
+          let playerHeadY = 999;
 
           if (activePlayers.length > 0) {
             for (const pObj of activePlayers) {
               const head = pObj.colliders?.head;
               const lms = pObj.landmarksCanvas;
-              if (head) playerHeadX = head.x;
-              else if (lms && lms[0]) playerHeadX = lms[0].x;
+              if (head) {
+                playerHeadX = head.x;
+                playerHeadY = head.y;
+              } else if (lms && lms[0]) {
+                playerHeadX = lms[0].x;
+                playerHeadY = lms[0].y;
+              }
 
-              // If head or shoulders drop significantly below standing baseline
+              // 1. Shoulders drop below standing baseline
               if (lms && lms[11] && lms[12]) {
                 const shoulderY = (lms[11].y + lms[12].y) / 2;
-                if (shoulderY > this.baselineShoulderY + 30) {
+                if (shoulderY > this.baselineShoulderY + 25) {
                   isDucking = true;
                 }
               }
-              if (head && head.y > this.baselineShoulderY - 15) {
+              // 2. Head drops below baseline
+              if (playerHeadY > this.baselineShoulderY - 10) {
+                isDucking = true;
+              }
+              // 3. Head is below flying snowman altitude (sm.y + 10)
+              if (playerHeadY > sm.y + 10) {
                 isDucking = true;
               }
             }
           }
-          if (pointer && pointer.active && pointer.y > safeBounds.top + safeBounds.height * 0.42) {
+          if (pointer && pointer.active && pointer.y > sm.y + 15) {
             isDucking = true;
           }
 
-          // Proximity collision / dodge check
+          // Proximity collision / dodge check (wider for 2x bigger snowman)
           const distToPlayer = Math.abs(sm.x - playerHeadX);
-          if (distToPlayer < 90) {
+          if (distToPlayer < 140) {
             if (isDucking) {
               if (!sm.dodged && !sm.hitPlayer) {
                 sm.dodged = true;
                 this.score += 2;
                 sound.playWindGust();
-                this.spawnFloatingText(sm.x, sm.y - 45, '💨 DUCKED UNDER! ⛄ +2 ⭐', '#4ADE80');
+                this.spawnFloatingText(sm.x, sm.y - 75, '💨 DUCKED UNDER! ⛄ +2 ⭐', '#4ADE80');
               }
             } else {
               if (!sm.hitPlayer && !sm.dodged) {
@@ -932,8 +1002,8 @@ export class DisasterZoneGame {
                   this.avatar.triggerYellowFlash(2.0, 'snowball');
                 }
                 sound.playIceSlipAndCrack();
-                this.spawnSnowBurst(sm.x, sm.y, 25);
-                this.spawnFloatingText(sm.x, sm.y - 45, '❄️ BONK! DUCK NEXT TIME! 🤪', '#FACC15');
+                this.spawnSnowBurst(sm.x, sm.y, 40);
+                this.spawnFloatingText(sm.x, sm.y - 75, '❄️ BONK! DUCK NEXT TIME! 🤪', '#FACC15');
               }
             }
           }
@@ -1456,7 +1526,7 @@ export class DisasterZoneGame {
     // Subtitle
     ctx.font = '900 20px system-ui, sans-serif';
     ctx.fillStyle = '#4ADE80';
-    ctx.fillText('🌟 ALL 12 CHALLENGES CLEARED! 🌟', cx, bannerY + 70);
+    ctx.fillText('🌟 ALL 10 CHALLENGES CLEARED! 🌟', cx, bannerY + 70);
 
     // Score pill
     ctx.font = '800 15px system-ui, sans-serif';
@@ -1609,39 +1679,41 @@ export class DisasterZoneGame {
       ctx.fill();
     }
 
-    // 2. Back Wave Layer (Rolling deep ocean blue across 100% of screen)
+    // 2. Back Wave Layer (Rolling deep ocean blue spanning 100% full width past screen edges)
     ctx.beginPath();
-    ctx.moveTo(-40, ch + 20);
+    ctx.moveTo(-120, ch + 50);
     const step = 16;
-    for (let x = -40; x <= cw + 40; x += step) {
+    for (let x = -120; x <= cw + 120; x += step) {
       const bwy = (waterTop + 14) + Math.sin(this.animTime * 3.8 + x * 0.015) * 12 + Math.cos(this.animTime * 2.2 + x * 0.025) * 6;
       ctx.lineTo(x, bwy);
     }
-    ctx.lineTo(cw + 40, ch + 20);
+    ctx.lineTo(cw + 120, ch + 50);
+    ctx.lineTo(-120, ch + 50);
     ctx.closePath();
     ctx.fillStyle = 'rgba(2, 132, 199, 0.38)';
     ctx.fill();
 
-    // 3. Foreground Main Wave Layer (Vibrant tropical water)
+    // 3. Foreground Main Wave Layer (Vibrant tropical water across full screen width)
     const frontGrad = ctx.createLinearGradient(0, waterTop, 0, ch);
-    frontGrad.addColorStop(0, 'rgba(56, 189, 248, 0.82)');
-    frontGrad.addColorStop(0.35, 'rgba(14, 116, 144, 0.90)');
+    frontGrad.addColorStop(0, 'rgba(56, 189, 248, 0.84)');
+    frontGrad.addColorStop(0.35, 'rgba(14, 116, 144, 0.92)');
     frontGrad.addColorStop(1, 'rgba(15, 23, 42, 0.96)');
 
     ctx.beginPath();
-    ctx.moveTo(-40, ch + 20);
+    ctx.moveTo(-120, ch + 50);
     const wavePoints = [];
-    for (let x = -40; x <= cw + 40; x += step) {
+    for (let x = -120; x <= cw + 120; x += step) {
       const fwy = waterTop + Math.sin(this.animTime * 5.4 + x * 0.018) * 13 + Math.cos(this.animTime * 3.8 + x * 0.028) * 6;
       wavePoints.push({ x, y: fwy });
       ctx.lineTo(x, fwy);
     }
-    ctx.lineTo(cw + 40, ch + 20);
+    ctx.lineTo(cw + 120, ch + 50);
+    ctx.lineTo(-120, ch + 50);
     ctx.closePath();
     ctx.fillStyle = frontGrad;
     ctx.fill();
 
-    // 4. Pure Surface Wave Stroke (Only top line - never strokes corners or bottom!)
+    // 4. Pure Surface Wave Stroke (Spanning beyond both left and right screen borders)
     ctx.beginPath();
     for (let i = 0; i < wavePoints.length; i++) {
       if (i === 0) ctx.moveTo(wavePoints[i].x, wavePoints[i].y);
@@ -1711,8 +1783,8 @@ export class DisasterZoneGame {
       ctx.stroke();
     }
 
-    // 11. Water Height Gauge & Safe-Line Callout (at 50% screen height)
-    const safeLineY = ch * 0.50;
+    // 11. Water Height Gauge & Safe-Line Callout (Dynamically tracks player's head height)
+    const safeLineY = this._lastPlayerNeckY ? (this._lastPlayerNeckY + 25) : (ch * 0.48);
     const isSafe = waterTop >= safeLineY;
     ctx.save();
     ctx.strokeStyle = isSafe ? 'rgba(74, 222, 128, 0.85)' : 'rgba(239, 68, 68, 0.90)';
@@ -1729,15 +1801,15 @@ export class DisasterZoneGame {
     ctx.strokeStyle = isSafe ? '#4ADE80' : '#FCA5A5';
     ctx.lineWidth = 2.5;
     ctx.beginPath();
-    ctx.roundRect(40, safeLineY - 20, 240, 40, 20);
+    ctx.roundRect(40, safeLineY - 20, 260, 40, 20);
     ctx.fill();
     ctx.stroke();
 
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.font = '900 15px system-ui, sans-serif';
+    ctx.font = '900 14px system-ui, sans-serif';
     ctx.fillStyle = '#FFFFFF';
-    ctx.fillText(isSafe ? '✅ SAFE ZONE (50%)' : '⚠️ KEEP SPLASHING! 💦', 160, safeLineY);
+    ctx.fillText(isSafe ? '✅ SAFE (BELOW HEAD)' : '⚠️ MOVE HANDS TO TREAD WATER! 💦', 170, safeLineY);
     ctx.restore();
 
     ctx.restore();
@@ -2166,9 +2238,10 @@ export class DisasterZoneGame {
       ctx.restore();
     }
 
-    // 2. Flying Snowman
+    // 2. Flying Snowman (Scaled 2.0x Bigger!)
     ctx.save();
     ctx.translate(sm.x, sm.y);
+    ctx.scale(2.0, 2.0);
     ctx.rotate(-0.08 + Math.sin(sm.animTime * 14) * 0.05);
 
     // Wind speedlines behind him
