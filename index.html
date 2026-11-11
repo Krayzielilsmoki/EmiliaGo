@@ -42,16 +42,16 @@
           <span id="mode-subtitle" class="subtitle">Choose a Game!</span>
         </div>
 
-        <div class="score-board">
-          <div class="score-pill star-trophy" id="star-pill" title="Golden Stars Earned by Emilia">
+        <div class="score-board hidden">
+          <div class="score-pill star-trophy hidden" id="star-pill" title="Golden Stars Earned by Emilia">
             <span class="score-label" id="star-label-text">⭐</span>
             <span id="star-val" class="score-number">0</span>
           </div>
-          <div class="score-pill current-score" id="current-score-pill">
+          <div class="score-pill current-score hidden" id="current-score-pill">
             <span id="score-label-text" class="score-label">SCORE</span>
             <span id="score-val" class="score-number">0</span>
           </div>
-          <div class="score-pill best-score" id="best-score-pill">
+          <div class="score-pill best-score hidden" id="best-score-pill">
             <span id="best-label-text" class="score-label">BEST</span>
             <span id="best-val" class="score-number">0</span>
           </div>
@@ -86,17 +86,30 @@
           <button id="btn-close-lab" class="icon-btn" aria-label="Close Settings">✕</button>
         </div>
 
+        <!-- Quick Jump Category Chips (TV Remote & Mouse Friendly) -->
+        <div class="drawer-nav-chips" role="tablist" aria-label="Settings Categories">
+          <button type="button" class="nav-chip" data-target="sec-avatar">🎭 Avatar</button>
+          <button type="button" class="nav-chip" data-target="sec-games">🎮 Games</button>
+          <button type="button" class="nav-chip" data-target="sec-audio">🎵 Audio</button>
+          <button type="button" class="nav-chip" data-target="sec-camera">📷 Camera</button>
+          <button type="button" class="nav-chip" data-target="sec-safezone">🛋️ Safe-Zone</button>
+          <button type="button" class="nav-chip" data-target="sec-physics">🎈 Tuning</button>
+          <button type="button" class="nav-chip" data-target="sec-telemetry">📡 Stats</button>
+          <button type="button" class="nav-chip" data-target="sec-logs">📋 Logs</button>
+        </div>
+
         <!-- Avatar & Player Style (Accessible via Remote Arrow-Right) -->
-        <section class="lab-section">
+        <section class="lab-section" id="sec-avatar">
           <h3>🎭 Avatar &amp; Player Style</h3>
           <div class="remote-grid">
             <button id="btn-avatar-mode" class="btn btn-blue" title="Switch between Cartoon Stickers, Full Avatar, and Skeleton">✨ Stickers</button>
             <button id="btn-player-mode" class="btn btn-yellow" title="Switch between Auto 1P/2P, 1 Player Only, and 2 Players">👥 2P Auto</button>
+            <button id="btn-halloween-theme" class="btn btn-yellow" style="grid-column: span 2;" title="Toggle Halloween Theme for Keepy Uppy, Hat Stacker, and Butterfly Pop">🎃 Halloween Theme: ON</button>
           </div>
         </section>
 
         <!-- Quick Game Switcher for Parent Remote -->
-        <section class="lab-section">
+        <section class="lab-section" id="sec-games">
           <h3>🎮 Quick Game Switcher (Remote)</h3>
           <div class="remote-grid">
             <button id="btn-remote-hub" class="btn btn-yellow">🏠 Start Hub</button>
@@ -114,7 +127,7 @@
         </section>
 
         <!-- Background Music, Voice Coach & Character Soundboard -->
-        <section class="lab-section">
+        <section class="lab-section" id="sec-audio">
           <h3>🎵 Music, Voice &amp; Soundboard</h3>
           <label class="checkbox-label">
             <input type="checkbox" id="chk-music-enabled" checked />
@@ -153,7 +166,7 @@
         </section>
 
         <!-- Webcam & TV Aspect Mapping -->
-        <section class="lab-section">
+        <section class="lab-section" id="sec-camera">
           <h3>📷 Webcam &amp; Zoom Settings</h3>
           <label class="control-label">
             Select USB Camera:
@@ -195,7 +208,7 @@
         </section>
 
         <!-- Living Room Safe Play-Zone Boundaries -->
-        <section class="lab-section">
+        <section class="lab-section" id="sec-safezone">
           <h3>🛋️ Living Room Safe-Zone Box</h3>
           <p class="help-text">
             Keep balloons, hats, and butterflies inside Emilia's safe rug area.
@@ -220,7 +233,7 @@
         </section>
 
         <!-- Kid Forgiveness & Physics -->
-        <section class="lab-section">
+        <section class="lab-section" id="sec-physics">
           <h3>🎈 Kid Forgiveness &amp; Physics</h3>
 
           <label class="slider-label">
@@ -247,7 +260,7 @@
         </section>
 
         <!-- Live Hardware Telemetry -->
-        <section class="lab-section telemetry-card">
+        <section class="lab-section telemetry-card" id="sec-telemetry">
           <h3>📡 Live Webcam &amp; Pose Telemetry</h3>
           <div class="telemetry-grid">
             <div class="stat-item">
@@ -274,7 +287,7 @@
         </section>
 
         <!-- Persistent Diagnostic & Crash Logs -->
-        <section class="lab-section">
+        <section class="lab-section" id="sec-logs">
           <h3>📋 Diagnostics &amp; Crash Logs</h3>
           <p class="help-text">
             Captures game state, errors, and memory status directly to the Shield TV disk.

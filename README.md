@@ -1,8 +1,14 @@
 # EmiliaGO! Complete Project Guide & Architecture Handbook
 
-Welcome to **EmiliaGO!**, an interactive, hands-free webcam motion-tracking adventure suite designed specifically for a 5-year-old player (Emilia) on NVIDIA Shield TV with a USB UVC webcam.
+Welcome to **EmiliaGO!**, an interactive, hands-free webcam motion-tracking adventure suite designed for kids using real-time AI body tracking (MediaPipe).
 
-This document contains everything needed to pick up development in future sessions, optimize performance, add new mini-games, or improve visual assets.
+> [!TIP]
+> **Want to customize this game for your own kids?**
+> Check out the **[Customization Guide](CUSTOMIZATION_GUIDE.md)** for a quick walkthrough on changing player names, celebration banners, music, sound effects, and 2-player mode!
+
+> [!NOTE]
+> **Looking to try the game immediately on Android / Android TV?**
+> Download the pre-built **`EmiliaGO-debug.apk`** from the **[Releases](../../releases)** tab on GitHub, or install directly using the build instructions below.
 
 ---
 

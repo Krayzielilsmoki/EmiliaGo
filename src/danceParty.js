@@ -63,10 +63,18 @@ export class DancePartyGame {
     this.currentTrack = null;
 
     // Dance Energy Bar (0..100) & Party Theme
+    this._steppedFloorGrads = new Map();
+    this._discoBallBaseGrad = null;
+    this._lastDiscoBallKey = '';
+    this._speakerCanvases = new Map();
+    this.floorTileEnergies = [0, 0, 0, 0, 0, 0, 0];
+    this.floorTilePrevStepped = [false, false, false, false, false, false, false];
     this.danceEnergy = 0;
     this.themeIdx = 0;
     this.particles = [];
     this.floatingTexts = [];
+    this.megaGrooveTimer = 0;
+    this.dancerJumpPhase = 0;
 
     // FREEZE! state
     this.nextFreezeTimer = 18.0;
@@ -98,6 +106,10 @@ export class DancePartyGame {
     this.score = 0;
     this.particles = [];
     this.floatingTexts = [];
+    this.megaGrooveTimer = 0;
+    this.dancerJumpPhase = 0;
+    this.floorTileEnergies = [0, 0, 0, 0, 0, 0, 0];
+    this.floorTilePrevStepped = [false, false, false, false, false, false, false];
     this.startNewDanceRound();
   }
 
@@ -114,6 +126,10 @@ export class DancePartyGame {
     this.curtainOpen = 0;
     this.reelsLocked = [false, false, false];
     this.danceEnergy = 0;
+    this.megaGrooveTimer = 0;
+    this.dancerJumpPhase = 0;
+    this.floorTileEnergies = [0, 0, 0, 0, 0, 0, 0];
+    this.floorTilePrevStepped = [false, false, false, false, false, false, false];
     this.respinHold = 0;
     this._respinTick = -1;
 
@@ -143,6 +159,20 @@ export class DancePartyGame {
       ft.y -= 50 * dt;
       ft.life -= dt;
       if (ft.life <= 0) this.floatingTexts.splice(i, 1);
+    }
+
+    // Update mega groove celebration timer & dancer jump interpolation
+    if (this.megaGrooveTimer > 0) {
+      this.megaGrooveTimer = Math.max(0, this.megaGrooveTimer - dt);
+    }
+    const targetJump = this.megaGrooveTimer > 0 ? 1.0 : 0.0;
+    this.dancerJumpPhase += (targetJump - this.dancerJumpPhase) * Math.min(1.0, dt * 5.5);
+
+    // Decay floor tile illumination trails
+    for (let c = 0; c < 7; c++) {
+      if (this.floorTileEnergies[c] > 0) {
+        this.floorTileEnergies[c] = Math.max(0, this.floorTileEnergies[c] - dt * 2.8);
+      }
     }
 
     // 1. Slot Machine Dress-Up Phase (Reels stop one at a time!)
@@ -229,6 +259,7 @@ export class DancePartyGame {
       if (this.danceEnergy >= 100) {
         this.danceEnergy = 0;
         this.score++;
+        this.megaGrooveTimer = 15.0; // 15-second Mega Groove celebration with backup dancers leaping on stage!
         if (this.score > this.bestScore) {
           this.bestScore = this.score;
           settings.data.bestDanceParty = this.bestScore;
@@ -249,7 +280,7 @@ export class DancePartyGame {
         );
         const milestoneCb = onMilestone || this.onMilestone;
         if (milestoneCb) {
-          milestoneCb(this.score);
+          milestoneCb(this.score, false);
         }
       }
 
@@ -423,6 +454,24 @@ export class DancePartyGame {
     }
   }
 
+  spawnCelebrationBurst(x, y, colors = ['#FACC15', '#FFFFFF', '#38BDF8']) {
+    for (let i = 0; i < 4; i++) {
+      if (this.particles.length >= 36) break;
+      const angle = -Math.PI / 2 + (Math.random() - 0.5) * 1.4;
+      const speed = 70 + Math.random() * 90;
+      this.particles.push({
+        x: x + (Math.random() - 0.5) * 16,
+        y: y + (Math.random() - 0.5) * 6,
+        vx: Math.cos(angle) * speed,
+        vy: Math.sin(angle) * speed,
+        r: 3 + Math.random() * 3,
+        color: colors[i % colors.length],
+        life: 0.45,
+        maxLife: 0.45,
+      });
+    }
+  }
+
   spawnFireworkBurst(x, y) {
     const palette = ['#FACC15', '#EC4899', '#38BDF8', '#4ADE80', '#A855F7', '#FFFFFF'];
     for (let i = 0; i < 20; i++) {
@@ -458,40 +507,48 @@ export class DancePartyGame {
     if (this.phase !== 'dress_up') {
       const theme = PARTY_THEMES[this.themeIdx % PARTY_THEMES.length];
       ctx.save();
-      ctx.fillStyle = theme.tint;
-      ctx.fillRect(0, 0, canvasWidth, canvasHeight);
+      try {
+        ctx.fillStyle = theme.tint;
+        ctx.fillRect(0, 0, canvasWidth, canvasHeight);
 
-      // Interactive Illuminated Dance Floor Tiles at stage bottom
-      this._drawDanceFloor(ctx, canvasWidth, canvasHeight, safeBounds, activePlayers, theme);
+        // Interactive Illuminated Dance Floor Tiles at stage bottom
+        this._drawDanceFloor(ctx, canvasWidth, canvasHeight, safeBounds, activePlayers, theme);
 
-      // Sweeping Disco Spotlight Beams from ceiling
-      for (let b = 0; b < 3; b++) {
-        const pivotX = canvasWidth * (0.22 + b * 0.28);
-        const sway = Math.sin(this.animTime * 2.2 + b * 1.8) * 0.42;
+        // Sweeping Disco Spotlight Beams from ceiling (batched single state save!)
         ctx.save();
-        ctx.translate(pivotX, 0);
-        ctx.rotate(sway);
-        ctx.globalAlpha = 0.16;
-        ctx.fillStyle = theme.beamColors[b % theme.beamColors.length];
-        ctx.beginPath();
-        ctx.moveTo(-25, 0);
-        ctx.lineTo(-210, canvasHeight);
-        ctx.lineTo(210, canvasHeight);
-        ctx.lineTo(25, 0);
-        ctx.closePath();
-        ctx.fill();
+        try {
+          ctx.globalAlpha = 0.14;
+          for (let b = 0; b < 3; b++) {
+            const pivotX = canvasWidth * (0.22 + b * 0.28);
+            const sway = Math.sin(this.animTime * 2.2 + b * 1.8) * 0.42;
+            const sinS = Math.sin(sway);
+            const cosS = Math.cos(sway);
+            ctx.fillStyle = theme.beamColors[b % theme.beamColors.length];
+            ctx.beginPath();
+            ctx.moveTo(pivotX - 25 * cosS, -25 * sinS);
+            ctx.lineTo(pivotX - 210 * cosS - canvasHeight * sinS, -210 * sinS + canvasHeight * cosS);
+            ctx.lineTo(pivotX + 210 * cosS - canvasHeight * sinS, 210 * sinS + canvasHeight * cosS);
+            ctx.lineTo(pivotX + 25 * cosS, 25 * sinS);
+            ctx.closePath();
+            ctx.fill();
+          }
+        } finally {
+          ctx.restore();
+        }
+
+        // Faceted 3D Mirror Disco Ball suspended from ceiling
+        this._drawDiscoBall(ctx, canvasWidth, canvasHeight, safeBounds, theme);
+      } finally {
         ctx.restore();
       }
-
-      // Faceted 3D Mirror Disco Ball suspended from ceiling
-      this._drawDiscoBall(ctx, canvasWidth, canvasHeight, safeBounds, theme);
-
-      ctx.restore();
 
       // 2. Draw the Randomized Outfit (Head, Top, Bottom) on each detected player!
       for (const pObj of activePlayers) {
         this._drawOutfitOnPlayer(ctx, pObj);
       }
+
+      // 3. Draw Animated Cartoon Backup Dancers & DJ Speaker Podiums!
+      this._drawBackupDancers(ctx, canvasWidth, canvasHeight, safeBounds, theme);
     }
 
     // 3. Draw Freeze Frost & Ice Cracks Overlay during 'freeze' or 'freeze_result'
@@ -606,6 +663,118 @@ export class DancePartyGame {
 
     // 3. Draw Headgear (Star Sunglasses exactly on eyes, or Crown / Cowboy Hat / Party Hat / Unicorn snug on crown)
     this._drawHeadAccessory(ctx, player);
+
+    // 4. Draw Avatar Hands & Forearms on Top Layer (so hands are always in front of shirt & pants!)
+    this._drawPlayerHandsOnTop(ctx, player);
+  }
+
+  _drawPlayerHandsOnTop(ctx, player) {
+    const lms = player.landmarksCanvas;
+    const colliders = player.colliders;
+    if (!colliders) return;
+
+    const isAvatar = settings.data.avatarMode === 'avatar' || (player && player.avatarMode === 'avatar');
+    const playerIdx = player.playerIndex || 0;
+
+    ctx.save();
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+
+    if (isAvatar) {
+      const shoulderSpanPx = player.shoulderSpanPx || 140;
+      const limbWidth = Math.max(18, shoulderSpanPx * 0.22);
+      // Player 1 = Bluey Blue (#60A5FA / #93C5FD paws), Player 2 = Bingo Orange (#FB923C / #FDBA74 paws)
+      const baseFur = playerIdx === 1 ? '#FB923C' : '#60A5FA';
+      const pawColor = playerIdx === 1 ? '#FDBA74' : '#93C5FD';
+      const outlineColor = '#1E3A8A';
+
+      // 1. Forearms: re-draw from Elbow to Wrist so arms gracefully overlay shirts & pants
+      if (lms && lms.length >= 17) {
+        const drawForearm = (elbow, wrist) => {
+          if (
+            !elbow ||
+            !wrist ||
+            (elbow.visibility !== undefined && elbow.visibility < 0.2) ||
+            (wrist.visibility !== undefined && wrist.visibility < 0.2)
+          ) {
+            return;
+          }
+          // Outer navy outline
+          ctx.strokeStyle = outlineColor;
+          ctx.lineWidth = limbWidth + 8;
+          ctx.beginPath();
+          ctx.moveTo(elbow.x, elbow.y);
+          ctx.lineTo(wrist.x, wrist.y);
+          ctx.stroke();
+
+          // Inner fur fill
+          ctx.strokeStyle = baseFur;
+          ctx.lineWidth = limbWidth;
+          ctx.beginPath();
+          ctx.moveTo(elbow.x, elbow.y);
+          ctx.lineTo(wrist.x, wrist.y);
+          ctx.stroke();
+        };
+
+        // Left Forearm (elbow lm 13 -> wrist lm 15)
+        drawForearm(lms[13], lms[15]);
+        // Right Forearm (elbow lm 14 -> wrist lm 16)
+        drawForearm(lms[14], lms[16]);
+      }
+
+      // 2. Cartoon Puppy Paws (Hands): re-draw on top of clothes
+      ['leftHand', 'rightHand'].forEach((k) => {
+        const h = colliders[k];
+        if (!h || (h.visibility !== undefined && h.visibility < 0.15)) return;
+
+        // Paw circle base
+        ctx.fillStyle = pawColor;
+        ctx.strokeStyle = outlineColor;
+        ctx.lineWidth = 4;
+        ctx.beginPath();
+        ctx.arc(h.x, h.y, h.r * 0.65, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.stroke();
+
+        // Cute paw pad highlight (lighter pad cushion)
+        ctx.fillStyle = '#FFFFFF';
+        ctx.beginPath();
+        ctx.arc(h.x, h.y - h.r * 0.08, h.r * 0.24, 0, Math.PI * 2);
+        ctx.fill();
+      });
+
+    } else {
+      // Stickers / Camera Mode: re-draw Glowing Bopper Gloves on top of outfit
+      ['leftHand', 'rightHand'].forEach((handKey, idx) => {
+        const hand = colliders[handKey];
+        if (!hand || (hand.visibility !== undefined && hand.visibility < 0.2)) return;
+
+        const isLeft = idx === 0;
+        const primaryColor = playerIdx === 1
+          ? (isLeft ? '#F472B6' : '#A855F7')
+          : (isLeft ? '#38BDF8' : '#FB923C');
+        const glowColor = playerIdx === 1
+          ? 'rgba(244, 114, 182, 0.45)'
+          : (isLeft ? 'rgba(56, 189, 248, 0.45)' : 'rgba(251, 146, 60, 0.45)');
+
+        ctx.beginPath();
+        ctx.arc(hand.x, hand.y, hand.r, 0, Math.PI * 2);
+        ctx.fillStyle = glowColor;
+        ctx.fill();
+        ctx.lineWidth = 4;
+        ctx.strokeStyle = primaryColor;
+        ctx.stroke();
+
+        this._drawStarPath(ctx, hand.x, hand.y, 5, hand.r * 0.48, hand.r * 0.24);
+        ctx.fillStyle = '#FFFFFF';
+        ctx.fill();
+        ctx.strokeStyle = primaryColor;
+        ctx.lineWidth = 1.5;
+        ctx.stroke();
+      });
+    }
+
+    ctx.restore();
   }
 
   _drawHeadAccessory(ctx, player) {
@@ -620,64 +789,89 @@ export class DancePartyGame {
     let headScale = 1.0;
     let crownPoint = null;
 
-    let lEye = null;
-    let rEye = null;
+    // Check if player is rendered as Cartoon Avatar (Bluey/Bingo dog)
+    const isAvatar = settings.data.avatarMode === 'avatar' || (player && player.avatarMode === 'avatar');
 
-    if (lms) {
-      // Find left eye: check landmark 2 (pupil), 1 (inner), 3 (outer)
-      for (const idx of [2, 1, 3]) {
-        if (lms[idx] && (lms[idx].visibility === undefined || lms[idx].visibility > 0.15)) {
-          lEye = lms[idx];
-          break;
-        }
-      }
-      // Find right eye: check landmark 5 (pupil), 4 (inner), 6 (outer)
-      for (const idx of [5, 4, 6]) {
-        if (lms[idx] && (lms[idx].visibility === undefined || lms[idx].visibility > 0.15)) {
-          rEye = lms[idx];
-          break;
-        }
-      }
-    }
-
-    if (lEye && rEye) {
-      eyeCenter = { x: (lEye.x + rEye.x) / 2, y: (lEye.y + rEye.y) / 2 };
-      eyeSpan = Math.hypot(rEye.x - lEye.x, rEye.y - lEye.y);
-      headAngle = Math.atan2(rEye.y - lEye.y, rEye.x - lEye.x);
-
-      // Verify eyeCenter is strictly above the nose (lms[0])!
-      if (lms && lms[0] && (lms[0].visibility === undefined || lms[0].visibility > 0.2)) {
-        const noseY = lms[0].y;
-        if (eyeCenter.y > noseY - eyeSpan * 0.22) {
-          eyeCenter.y = noseY - eyeSpan * 0.32;
-        }
-      }
-
-      // Crown / top of head anchor: Perpendicularly offset upwards from eyes
-      const upX = Math.sin(headAngle);
-      const upY = -Math.cos(headAngle);
-      crownPoint = {
-        x: eyeCenter.x + upX * (eyeSpan * 2.15),
-        y: eyeCenter.y + upY * (eyeSpan * 2.15),
-      };
-      headScale = Math.max(0.65, Math.min(2.0, eyeSpan / 44));
-
-    } else if (lms && lms[0] && (lms[0].visibility === undefined || lms[0].visibility > 0.2)) {
-      // If eye corners have low confidence, anchor above the nose tip
-      const span = player.shoulderSpanPx ? player.shoulderSpanPx * 0.28 : 45;
-      eyeSpan = span;
-      headAngle = 0;
-      headScale = Math.max(0.65, Math.min(2.0, eyeSpan / 44));
-      eyeCenter = { x: lms[0].x, y: lms[0].y - span * 0.38 };
-      crownPoint = { x: lms[0].x, y: lms[0].y - span * 1.8 };
-
-    } else if (colliders && colliders.head && colliders.head.visibility > 0.25) {
+    if (isAvatar && colliders && colliders.head && colliders.head.visibility > 0.15) {
       const h = colliders.head;
-      eyeSpan = h.r * 0.85;
-      headAngle = 0;
-      headScale = h.r / 42;
-      eyeCenter = { x: h.x, y: h.y };
-      crownPoint = { x: h.x, y: h.y - h.r * 0.88 }; // Perched atop crown of head
+      const headR = h.r * 0.95;
+      // In avatarRenderer.js drawCartoonAvatar:
+      // Avatar head center is (h.x, h.y), radius headR
+      // Eyes are drawn at (h.x ± headR * 0.34, h.y - headR * 0.18) with radius headR * 0.18 / 0.24
+      // Snout/nose is drawn at (h.x, h.y + headR * 0.08)
+      eyeCenter = { x: h.x, y: h.y - headR * 0.18 };
+      eyeSpan = headR * 0.68; // 2 * 0.34, matching avatar pupil spacing exactly!
+      headAngle = 0; // Avatar head is upright
+      headScale = headR / 36;
+      crownPoint = { x: h.x, y: h.y - headR * 0.88 }; // Perched on crown of head between puppy ears
+    } else {
+      let lEye = null;
+      let rEye = null;
+
+      if (lms) {
+        // Find left eye: check landmark 2 (pupil), 1 (inner), 3 (outer)
+        for (const idx of [2, 1, 3]) {
+          if (lms[idx] && (lms[idx].visibility === undefined || lms[idx].visibility > 0.15)) {
+            lEye = lms[idx];
+            break;
+          }
+        }
+        // Find right eye: check landmark 5 (pupil), 4 (inner), 6 (outer)
+        for (const idx of [5, 4, 6]) {
+          if (lms[idx] && (lms[idx].visibility === undefined || lms[idx].visibility > 0.15)) {
+            rEye = lms[idx];
+            break;
+          }
+        }
+      }
+
+      if (lEye && rEye) {
+        // Sort eyes left-to-right on canvas to prevent inverted angle flips
+        let eyeLeft = lEye;
+        let eyeRight = rEye;
+        if (eyeLeft.x > eyeRight.x) {
+          eyeLeft = rEye;
+          eyeRight = lEye;
+        }
+
+        eyeCenter = { x: (eyeLeft.x + eyeRight.x) / 2, y: (eyeLeft.y + eyeRight.y) / 2 };
+        eyeSpan = Math.hypot(eyeRight.x - eyeLeft.x, eyeRight.y - eyeLeft.y);
+        headAngle = Math.atan2(eyeRight.y - eyeLeft.y, eyeRight.x - eyeLeft.x);
+
+        // Verify eyeCenter is strictly ABOVE the nose tip (lms[0])!
+        if (lms && lms[0] && (lms[0].visibility === undefined || lms[0].visibility > 0.2)) {
+          const noseY = lms[0].y;
+          if (eyeCenter.y > noseY - eyeSpan * 0.70) {
+            eyeCenter.y = noseY - eyeSpan * 0.75;
+          }
+        }
+
+        // Crown / top of head anchor: Perpendicularly offset upwards from eyes (hairline height)
+        const upX = Math.sin(headAngle);
+        const upY = -Math.cos(headAngle);
+        crownPoint = {
+          x: eyeCenter.x + upX * (eyeSpan * 2.65),
+          y: eyeCenter.y + upY * (eyeSpan * 2.65),
+        };
+        headScale = Math.max(0.65, Math.min(2.0, eyeSpan / 44));
+
+      } else if (colliders && colliders.head && colliders.head.visibility > 0.15) {
+        const h = colliders.head;
+        const headR = h.r * 0.95;
+        eyeCenter = { x: h.x, y: h.y - headR * 0.20 };
+        eyeSpan = headR * 0.70;
+        headAngle = 0;
+        headScale = headR / 36;
+        crownPoint = { x: h.x, y: h.y - headR * 0.90 };
+
+      } else if (lms && lms[0] && (lms[0].visibility === undefined || lms[0].visibility > 0.2)) {
+        const span = player.shoulderSpanPx ? player.shoulderSpanPx * 0.28 : 45;
+        eyeSpan = span;
+        headAngle = 0;
+        headScale = Math.max(0.65, Math.min(2.0, eyeSpan / 44));
+        eyeCenter = { x: lms[0].x, y: lms[0].y - span * 0.85 };
+        crownPoint = { x: lms[0].x, y: lms[0].y - span * 2.65 };
+      }
     }
 
     if (!eyeCenter || !crownPoint) return;
@@ -692,10 +886,10 @@ export class DancePartyGame {
       // Distance from center to each eye pupil (half of eyeSpan)
       const lensDist = eyeSpan * 0.50;
       // Proportional star radius sized to sit neatly over the eye socket
-      const starR = Math.max(16, eyeSpan * 0.40);
+      const starR = Math.max(16, isAvatar ? eyeSpan * 0.48 : eyeSpan * 0.40);
       const starInnerR = starR * 0.50;
-      // Slight vertical lift so lens sits right over pupils and above nose bridge
-      const lensY = -eyeSpan * 0.05;
+      // Vertical lift so lens sits right over pupils and well above nose bridge
+      const lensY = isAvatar ? 0 : -eyeSpan * 0.16;
 
       // Draw Star Sunglasses Frames directly over each eye pupil
       [-lensDist, lensDist].forEach((starX) => {
@@ -735,7 +929,7 @@ export class DancePartyGame {
 
     // 2. ROYAL CROWN (Perched snugly on top of head)
     } else if (headItem.id === 'crown') {
-      ctx.translate(crownPoint.x, crownPoint.y);
+      ctx.translate(crownPoint.x, crownPoint.y - 12 * headScale);
       ctx.rotate(headAngle);
       ctx.scale(headScale * 1.05, headScale * 1.05);
 
@@ -772,7 +966,7 @@ export class DancePartyGame {
 
     // 3. SHERIFF / COWBOY HAT
     } else if (headItem.id === 'cowboy') {
-      ctx.translate(crownPoint.x, crownPoint.y);
+      ctx.translate(crownPoint.x, crownPoint.y - 12 * headScale);
       ctx.rotate(headAngle);
       ctx.scale(headScale * 1.15, headScale * 1.15);
 
@@ -812,7 +1006,7 @@ export class DancePartyGame {
 
     // 4. DISCO PARTY CONE HAT
     } else if (headItem.id === 'party') {
-      ctx.translate(crownPoint.x, crownPoint.y);
+      ctx.translate(crownPoint.x, crownPoint.y - 12 * headScale);
       ctx.rotate(headAngle);
       ctx.scale(headScale * 1.1, headScale * 1.1);
 
@@ -854,7 +1048,7 @@ export class DancePartyGame {
 
     // 5. UNICORN HORN & FLOWERS
     } else if (headItem.id === 'unicorn') {
-      ctx.translate(crownPoint.x, crownPoint.y);
+      ctx.translate(crownPoint.x, crownPoint.y - 12 * headScale);
       ctx.rotate(headAngle);
       ctx.scale(headScale * 1.05, headScale * 1.05);
 
@@ -1645,46 +1839,118 @@ export class DancePartyGame {
     const tileW = cw / cols;
     const beatPulse = (Math.sin(this.animTime * 4.8) + 1) * 0.5;
 
-    ctx.save();
-    for (let c = 0; c < cols; c++) {
-      const x1 = c * tileW;
-      const x2 = (c + 1) * tileW;
-
-      // Check if any player's feet or body are stepping on this floor tile column
-      let isStepped = false;
-      for (const p of activePlayers) {
-        if (p.x >= x1 - 15 && p.x <= x2 + 15) {
-          isStepped = true;
-          break;
+    // 1. Gather all active stepping X coordinates from feet / ankles / body
+    const steppingXs = [];
+    for (const p of activePlayers) {
+      if (!p) continue;
+      // Feet hitboxes
+      if (p.colliders) {
+        if (p.colliders.leftFoot && (p.colliders.leftFoot.visibility === undefined || p.colliders.leftFoot.visibility > 0.15)) {
+          steppingXs.push(p.colliders.leftFoot.x);
+        }
+        if (p.colliders.rightFoot && (p.colliders.rightFoot.visibility === undefined || p.colliders.rightFoot.visibility > 0.15)) {
+          steppingXs.push(p.colliders.rightFoot.x);
         }
       }
-
-      if (isStepped) {
-        // Brilliant stepped glow with floor ripple
-        const steppedGrad = ctx.createLinearGradient(0, floorY, 0, ch);
-        steppedGrad.addColorStop(0, 'rgba(255, 255, 255, 0.45)');
-        steppedGrad.addColorStop(0.3, theme.beamColors[c % theme.beamColors.length]);
-        steppedGrad.addColorStop(1, 'rgba(15, 23, 42, 0.65)');
-        ctx.fillStyle = steppedGrad;
-      } else {
-        // Idle pulsing tile
-        const idleAlpha = 0.08 + beatPulse * 0.07;
-        ctx.fillStyle = `rgba(255, 255, 255, ${idleAlpha})`;
+      // Ankle / Foot landmarks
+      if (p.landmarksCanvas && p.landmarksCanvas.length >= 29) {
+        const lAnk = p.landmarksCanvas[27];
+        const rAnk = p.landmarksCanvas[28];
+        if (lAnk && (lAnk.visibility === undefined || lAnk.visibility > 0.15)) steppingXs.push(lAnk.x);
+        if (rAnk && (rAnk.visibility === undefined || rAnk.visibility > 0.15)) steppingXs.push(rAnk.x);
       }
-
-      ctx.beginPath();
-      ctx.roundRect(x1 + 4, floorY + 4, tileW - 8, floorH - 8, 8);
-      ctx.fill();
-
-      // Neon tile border
-      ctx.strokeStyle = isStepped
-        ? '#FFFFFF'
-        : theme.beamColors[c % theme.beamColors.length];
-      ctx.lineWidth = isStepped ? 3.5 : 1.5;
-      ctx.globalAlpha = isStepped ? 0.95 : 0.35 + beatPulse * 0.25;
-      ctx.stroke();
+      // Fallback: If camera is framed waist-up, use hip center or head X
+      if (steppingXs.length === 0) {
+        if (p.landmarksCanvas && p.landmarksCanvas[23] && p.landmarksCanvas[24]) {
+          steppingXs.push((p.landmarksCanvas[23].x + p.landmarksCanvas[24].x) / 2);
+        } else if (p.colliders && p.colliders.head) {
+          steppingXs.push(p.colliders.head.x);
+        }
+      }
     }
-    ctx.restore();
+
+    ctx.save();
+    try {
+      for (let c = 0; c < cols; c++) {
+        const x1 = c * tileW;
+        const x2 = (c + 1) * tileW;
+
+        let isUnderFoot = false;
+        for (const sx of steppingXs) {
+          if (sx >= x1 - 12 && sx <= x2 + 12) {
+            isUnderFoot = true;
+            break;
+          }
+        }
+
+        if (isUnderFoot) {
+          this.floorTileEnergies[c] = 1.0;
+          if (!this.floorTilePrevStepped[c]) {
+            this.floorTilePrevStepped[c] = true;
+            // Spawn little celebration sparkles over newly stepped tile!
+            if (this.particles.length < 24) {
+              const tileCenterX = x1 + tileW / 2;
+              this.spawnCelebrationBurst(tileCenterX, floorY + 12, [theme.beamColors[c % theme.beamColors.length], '#FFFFFF', '#FACC15']);
+            }
+          }
+        } else {
+          this.floorTilePrevStepped[c] = false;
+        }
+
+        const energy = this.floorTileEnergies[c] || 0;
+        const beamColor = theme.beamColors[c % theme.beamColors.length];
+
+        if (energy > 0.05) {
+          // Glowing Stepped / Luminous Decay Tile (Phosphorescent Light Trail)
+          ctx.fillStyle = beamColor;
+          ctx.globalAlpha = 0.35 + energy * 0.55;
+          ctx.beginPath();
+          ctx.roundRect(x1 + 4, floorY + 4, tileW - 8, floorH - 8, 8);
+          ctx.fill();
+
+          // Brilliant White Core Flash
+          if (energy > 0.45) {
+            ctx.fillStyle = '#FFFFFF';
+            ctx.globalAlpha = (energy - 0.45) * 1.6;
+            ctx.beginPath();
+            ctx.roundRect(x1 + 10, floorY + 8, tileW - 20, floorH - 16, 6);
+            ctx.fill();
+          }
+
+          // Radiant border
+          ctx.strokeStyle = '#FFFFFF';
+          ctx.lineWidth = 3.5;
+          ctx.globalAlpha = 0.8 + energy * 0.2;
+          ctx.stroke();
+
+          // Center Disco Diamond / Star (✦) on illuminated tile
+          if (energy > 0.3) {
+            const cx = x1 + tileW / 2;
+            const cy = floorY + floorH / 2;
+            ctx.fillStyle = '#FFFFFF';
+            ctx.globalAlpha = energy;
+            this._drawStarPath(ctx, cx, cy, 4, 12 * energy, 4 * energy);
+            ctx.fill();
+          }
+
+        } else {
+          // Authentic Illuminated Disco Floor Panel (Pulsing rhythmically to 124 BPM)
+          ctx.fillStyle = beamColor;
+          ctx.globalAlpha = 0.12 + beatPulse * 0.10;
+          ctx.beginPath();
+          ctx.roundRect(x1 + 4, floorY + 4, tileW - 8, floorH - 8, 8);
+          ctx.fill();
+
+          // Neon border
+          ctx.strokeStyle = beamColor;
+          ctx.lineWidth = 2.0;
+          ctx.globalAlpha = 0.45 + beatPulse * 0.30;
+          ctx.stroke();
+        }
+      }
+    } finally {
+      ctx.restore();
+    }
   }
 
   _drawDiscoBall(ctx, cw, ch, safeBounds, theme) {
@@ -1695,21 +1961,15 @@ export class DancePartyGame {
 
     ctx.save();
 
-    // 1. Hanging metallic chain from ceiling
-    ctx.strokeStyle = '#94A3B8';
-    ctx.lineWidth = 2.5;
+    // 1. Hanging metallic chain from ceiling (dashed chrome chain: 1 fast stroke!)
+    ctx.strokeStyle = '#CBD5E1';
+    ctx.lineWidth = 3.0;
+    ctx.setLineDash([4, 6]);
     ctx.beginPath();
     ctx.moveTo(ballX, 0);
     ctx.lineTo(ballX, ballY - radius);
     ctx.stroke();
-
-    // Chain links
-    ctx.fillStyle = '#CBD5E1';
-    for (let y = 6; y < ballY - radius; y += 10) {
-      ctx.beginPath();
-      ctx.ellipse(ballX, y, 2.5, 4.5, 0, 0, Math.PI * 2);
-      ctx.stroke();
-    }
+    ctx.setLineDash([]);
 
     // Chrome mounting hook
     ctx.fillStyle = '#E2E8F0';
@@ -1717,27 +1977,32 @@ export class DancePartyGame {
     ctx.arc(ballX, ballY - radius + 3, 5, 0, Math.PI * 2);
     ctx.fill();
 
-    // 2. Spherical Disco Ball with Facets
-    const ballBaseGrad = ctx.createRadialGradient(
-      ballX - 8,
-      ballY - 8,
-      4,
-      ballX,
-      ballY,
-      radius
-    );
-    ballBaseGrad.addColorStop(0, '#FFFFFF');
-    ballBaseGrad.addColorStop(0.4, '#CBD5E1');
-    ballBaseGrad.addColorStop(0.85, '#475569');
-    ballBaseGrad.addColorStop(1, '#0F172A');
-    ctx.fillStyle = ballBaseGrad;
+    // 2. Spherical Disco Ball with Facets (cached radial base gradient)
+    const ballKey = `${ballX}_${ballY}_${radius}`;
+    if (this._lastDiscoBallKey !== ballKey || !this._discoBallBaseGrad) {
+      this._lastDiscoBallKey = ballKey;
+      const grad = ctx.createRadialGradient(
+        ballX - 8,
+        ballY - 8,
+        4,
+        ballX,
+        ballY,
+        radius
+      );
+      grad.addColorStop(0, '#FFFFFF');
+      grad.addColorStop(0.4, '#CBD5E1');
+      grad.addColorStop(0.85, '#475569');
+      grad.addColorStop(1, '#0F172A');
+      this._discoBallBaseGrad = grad;
+    }
+    ctx.fillStyle = this._discoBallBaseGrad;
     ctx.beginPath();
     ctx.arc(ballX, ballY, radius, 0, Math.PI * 2);
     ctx.fill();
 
-    // Facet grid (6 latitude rings × 12 longitude segments)
-    const latRings = 6;
-    const lonSegs = 12;
+    // Fast Facet grid (3 latitude rings × 6 longitude segments, fillRect only!)
+    const latRings = 3;
+    const lonSegs = 6;
     for (let r = 0; r < latRings; r++) {
       const latAngle = ((r + 0.5) / latRings) * Math.PI;
       const ringY = ballY - Math.cos(latAngle) * radius;
@@ -1745,27 +2010,17 @@ export class DancePartyGame {
 
       for (let s = 0; s < lonSegs; s++) {
         const segAngle = rot + (s / lonSegs) * Math.PI * 2;
-        const cosA = Math.cos(segAngle);
-        // Only draw visible front-facing facets
-        if (Math.sin(segAngle) > -0.15) {
+        const sinA = Math.sin(segAngle);
+        if (sinA > -0.15) {
+          const cosA = Math.cos(segAngle);
           const fx = ballX + cosA * ringRadius;
           const fy = ringY;
-          const fw = Math.max(3, ((Math.PI * ringRadius) / lonSegs) * Math.abs(Math.sin(segAngle)));
-          const fh = ((radius * 2) / latRings) * 0.75;
+          const fw = Math.max(4, ((Math.PI * ringRadius) / lonSegs) * Math.abs(sinA));
+          const fh = ((radius * 2) / latRings) * 0.72;
 
-          // Shimmer lighting
           const shimmer = (Math.sin(this.animTime * 3 + s * 1.5 + r) + 1) * 0.5;
-          let facetCol = '#94A3B8';
-          if (shimmer > 0.82) facetCol = '#FFFFFF';
-          else if (shimmer > 0.55) facetCol = '#E2E8F0';
-          else if (shimmer > 0.35) facetCol = '#64748B';
-          else facetCol = '#334155';
-
-          ctx.fillStyle = facetCol;
+          ctx.fillStyle = shimmer > 0.8 ? '#FFFFFF' : shimmer > 0.5 ? '#E2E8F0' : shimmer > 0.3 ? '#64748B' : '#334155';
           ctx.fillRect(fx - fw / 2, fy - fh / 2, fw, fh);
-          ctx.strokeStyle = 'rgba(15, 23, 42, 0.45)';
-          ctx.lineWidth = 1;
-          ctx.strokeRect(fx - fw / 2, fy - fh / 2, fw, fh);
         }
       }
     }
@@ -1786,18 +2041,15 @@ export class DancePartyGame {
       ctx.stroke();
     }
 
-    // 3. Orbiting Disco Light Spots across the room
-    const spotCount = 10;
+    // 3. Orbiting Disco Light Spots across the room (5 crisp spots)
+    const spotCount = 5;
     for (let i = 0; i < spotCount; i++) {
       const a = rot * 1.4 + (i * Math.PI * 2) / spotCount;
-      const spotX = ballX + Math.cos(a) * (cw * 0.44);
-      const spotY = ch * 0.55 + Math.sin(a * 1.6 + i) * (ch * 0.32);
-      const spotCol = theme.beamColors[i % theme.beamColors.length];
-
-      ctx.fillStyle = spotCol;
-      ctx.globalAlpha = 0.22;
+      const sx = ballX + Math.cos(a) * (cw * 0.38);
+      const sy = safeBounds.top + safeBounds.height * 0.45 + Math.sin(a * 1.8) * 85;
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.42)';
       ctx.beginPath();
-      ctx.ellipse(spotX, spotY, 20, 13, a * 0.4, 0, Math.PI * 2);
+      ctx.arc(sx, sy, 5, 0, Math.PI * 2);
       ctx.fill();
     }
 
@@ -1974,6 +2226,860 @@ export class DancePartyGame {
       ctx.lineCap = 'round';
       ctx.stroke();
     }
+    ctx.restore();
+  }
+
+  // =========================================================================
+  // ANIMATED CARTOON BACKUP DANCERS & DJ SPEAKERS (4-CHARACTER STAGE CREW)
+  // =========================================================================
+  _drawBackupDancers(ctx, cw, ch, safeBounds, theme) {
+    const isFrozen = this.phase === 'freeze' || this.phase === 'freeze_result';
+    const isMega = this.megaGrooveTimer > 0;
+    // Beat rhythm: ~124 BPM
+    const beatTime = isFrozen ? 0 : this.animTime * (124 / 60) * Math.PI * 2;
+    const pulse = isFrozen ? 0 : Math.max(0, Math.sin(beatTime));
+
+    const groundY = safeBounds.bottom - 18;
+    const speakerW = 86;
+    const speakerH = 96;
+
+    // Speaker podium positions (flanking far lower left & right)
+    const leftSpeakerX = safeBounds.left + 65;
+    const leftSpeakerY = groundY - speakerH / 2;
+
+    const rightSpeakerX = safeBounds.right - 65;
+    const rightSpeakerY = groundY - speakerH / 2;
+
+    const beamColor1 = (theme && theme.beamColors && theme.beamColors[0]) || '#38BDF8';
+    const beamColor2 = (theme && theme.beamColors && theme.beamColors[1]) || '#EC4899';
+
+    // 1. Draw DJ Speaker Cabinets (anchored firmly at stage sides)
+    this._drawDJSpeaker(ctx, leftSpeakerX, leftSpeakerY, speakerW, speakerH, pulse, beamColor1);
+    this._drawDJSpeaker(ctx, rightSpeakerX, rightSpeakerY, speakerW, speakerH, pulse, beamColor2);
+
+    // 2. Dancer Positions (smooth interpolation between idle and floor during Mega Groove)
+    const t = Math.max(0, Math.min(1, this.dancerJumpPhase || 0));
+    const arcLift = Math.sin(t * Math.PI) * 44;
+
+    // Character 1: DJ Rex (Left Speaker -> Leaps forward to Left Stage)
+    const rexX = leftSpeakerX * (1 - t) + (safeBounds.left + 185) * t;
+    const rexY = (leftSpeakerY - speakerH / 2 + 8) * (1 - t) + (groundY - 10) * t - arcLift;
+
+    // Character 2: Sparkle Pup (Right Speaker -> Leaps forward to Right Stage)
+    const pupX = rightSpeakerX * (1 - t) + (safeBounds.right - 185) * t;
+    const pupY = (rightSpeakerY - speakerH / 2 + 8) * (1 - t) + (groundY - 10) * t - arcLift;
+
+    // Character 3: Robo-Beep (Stage Wing Left -> Moves in on Mega Groove)
+    const roboX = (safeBounds.left + 165) * (1 - t) + (safeBounds.left + 320) * t;
+    const roboY = groundY - 10;
+
+    // Character 4: Cosmic Bunny (Stage Wing Right -> Moves in on Mega Groove)
+    const bunnyX = (safeBounds.right - 165) * (1 - t) + (safeBounds.right - 320) * t;
+    const bunnyY = groundY - 10;
+
+    // 3. Draw All 4 Dancers at user-tuned 1.5x scale!
+    const dancerScale = 1.50;
+    this._drawDJRex(ctx, rexX, rexY, dancerScale, beatTime, isMega, isFrozen);
+    this._drawRoboBeep(ctx, roboX, roboY, dancerScale * 0.96, beatTime, isMega, isFrozen);
+    this._drawCosmicBunny(ctx, bunnyX, bunnyY, dancerScale * 0.96, beatTime, isMega, isFrozen);
+    this._drawSparklePup(ctx, pupX, pupY, dancerScale, beatTime, isMega, isFrozen);
+  }
+
+  _getSpeakerCanvas(w, h, glowColor) {
+    if (!this._speakerCanvases) this._speakerCanvases = new Map();
+    const key = `${w}_${h}_${glowColor}`;
+    let cached = this._speakerCanvases.get(key);
+    if (cached) return cached;
+
+    const off = document.createElement('canvas');
+    off.width = w + 16;
+    off.height = h + 24;
+    const octx = off.getContext('2d');
+    const ox = off.width / 2;
+    const oy = h / 2 + 6;
+
+    // Speaker Shadow
+    octx.fillStyle = 'rgba(0, 0, 0, 0.35)';
+    octx.beginPath();
+    octx.ellipse(ox, oy + h / 2 + 6, w * 0.52, 10, 0, 0, Math.PI * 2);
+    octx.fill();
+
+    // Speaker Cabinet Box
+    octx.fillStyle = '#0F172A';
+    octx.strokeStyle = glowColor;
+    octx.lineWidth = 3.5;
+    octx.beginPath();
+    if (octx.roundRect) octx.roundRect(ox - w / 2, oy - h / 2, w, h, 10);
+    else octx.rect(ox - w / 2, oy - h / 2, w, h);
+    octx.fill();
+    octx.stroke();
+
+    // Corner Screws
+    octx.fillStyle = '#475569';
+    [[-w / 2 + 6, -h / 2 + 6], [w / 2 - 6, -h / 2 + 6], [-w / 2 + 6, h / 2 - 6], [w / 2 - 6, h / 2 - 6]].forEach(([sx, sy]) => {
+      octx.beginPath();
+      octx.arc(ox + sx, oy + sy, 2.5, 0, Math.PI * 2);
+      octx.fill();
+    });
+
+    // Top Tweeter Horn
+    octx.fillStyle = '#1E293B';
+    octx.strokeStyle = '#64748B';
+    octx.lineWidth = 2.0;
+    octx.beginPath();
+    octx.arc(ox, oy - h * 0.24, 11, 0, Math.PI * 2);
+    octx.fill();
+    octx.stroke();
+    octx.fillStyle = glowColor;
+    octx.beginPath();
+    octx.arc(ox, oy - h * 0.24, 4, 0, Math.PI * 2);
+    octx.fill();
+
+    // Main Bass Subwoofer Outer Rim
+    octx.fillStyle = '#1E293B';
+    octx.strokeStyle = '#334155';
+    octx.lineWidth = 3.0;
+    octx.beginPath();
+    octx.arc(ox, oy + h * 0.18, 22, 0, Math.PI * 2);
+    octx.fill();
+    octx.stroke();
+
+    cached = { canvas: off, ox, oy };
+    this._speakerCanvases.set(key, cached);
+    return cached;
+  }
+
+  _drawDJSpeaker(ctx, cx, cy, w, h, pulse, glowColor) {
+    const cached = this._getSpeakerCanvas(w, h, glowColor);
+    ctx.drawImage(cached.canvas, cx - cached.ox, cy - cached.oy);
+
+    // Inner vibrating diaphragm (only dynamic element!)
+    const wooferR = 21 * (1 + pulse * 0.12);
+    const wy = cy + h * 0.18;
+    ctx.save();
+    ctx.fillStyle = glowColor;
+    ctx.globalAlpha = 0.85 + pulse * 0.15;
+    ctx.beginPath();
+    ctx.arc(cx, wy, wooferR * 0.55, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Center dust cap
+    ctx.fillStyle = '#0F172A';
+    ctx.globalAlpha = 1.0;
+    ctx.beginPath();
+    ctx.arc(cx, wy, 4.5, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+  }
+
+  _drawDJRex(ctx, x, y, scale, beatTime, isMega, isFrozen) {
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.scale(scale, scale);
+
+    const bounce = isFrozen ? 0 : Math.abs(Math.sin(beatTime * 2)) * (isMega ? 10 : 5) * 0.4;
+    const bodyRot = isFrozen ? -0.05 : Math.sin(beatTime) * (isMega ? 0.14 : 0.08);
+
+    // Drop shadow
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.3)';
+    ctx.beginPath();
+    ctx.ellipse(0, 4, 26, 7, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Feet with Purple Sneakers
+    const stepL = isFrozen ? 0 : isMega ? Math.sin(beatTime * 2) * 5 : 0;
+    const stepR = isFrozen ? 0 : isMega ? -Math.sin(beatTime * 2) * 5 : 0;
+
+    // Left Foot
+    ctx.fillStyle = '#9333EA';
+    ctx.strokeStyle = '#0F172A';
+    ctx.lineWidth = 2.5;
+    ctx.beginPath();
+    if (ctx.roundRect) ctx.roundRect(-22, -10 + stepL, 16, 12, [4, 4, 2, 2]);
+    else ctx.rect(-22, -10 + stepL, 16, 12);
+    ctx.fill();
+    ctx.stroke();
+    // White sneaker sole
+    ctx.fillStyle = '#FFFFFF';
+    ctx.fillRect(-22, 0 + stepL, 16, 3);
+
+    // Right Foot
+    ctx.fillStyle = '#9333EA';
+    ctx.beginPath();
+    if (ctx.roundRect) ctx.roundRect(6, -10 + stepR, 16, 12, [4, 4, 2, 2]);
+    else ctx.rect(6, -10 + stepR, 16, 12);
+    ctx.fill();
+    ctx.stroke();
+    // White sneaker sole
+    ctx.fillStyle = '#FFFFFF';
+    ctx.fillRect(6, 0 + stepR, 16, 3);
+
+    // Dino Body & Head container
+    ctx.save();
+    ctx.translate(0, -bounce);
+    ctx.rotate(bodyRot);
+
+    // Tail swinging out to left
+    const tailWiggle = isFrozen ? 0 : Math.sin(beatTime) * 8;
+    ctx.fillStyle = '#22C55E';
+    ctx.strokeStyle = '#0F172A';
+    ctx.lineWidth = 3.0;
+    ctx.beginPath();
+    ctx.moveTo(-16, -26);
+    ctx.quadraticCurveTo(-38 + tailWiggle, -30, -42 + tailWiggle, -40);
+    ctx.quadraticCurveTo(-32 + tailWiggle, -18, -12, -14);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+
+    // Chubby Green Torso
+    ctx.fillStyle = '#22C55E';
+    ctx.beginPath();
+    ctx.ellipse(0, -28, 20, 24, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+
+    // Bright Lime Tummy Patch
+    ctx.fillStyle = '#BEF264';
+    ctx.beginPath();
+    ctx.ellipse(4, -26, 12, 16, 0.1, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Big Friendly Dino Head
+    ctx.fillStyle = '#22C55E';
+    ctx.beginPath();
+    if (ctx.roundRect) ctx.roundRect(-14, -68, 34, 28, [14, 16, 10, 10]);
+    else ctx.rect(-14, -68, 34, 28);
+    ctx.fill();
+    ctx.stroke();
+
+    // Cute green nostril
+    ctx.fillStyle = '#15803D';
+    ctx.beginPath();
+    ctx.arc(16, -56, 2.2, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Friendly Smiling Mouth
+    ctx.strokeStyle = '#0F172A';
+    ctx.lineWidth = 2.5;
+    ctx.beginPath();
+    ctx.arc(6, -50, 8, 0.15 * Math.PI, 0.85 * Math.PI);
+    ctx.stroke();
+
+    // Rosy Dino Cheek
+    ctx.fillStyle = 'rgba(239, 68, 68, 0.35)';
+    ctx.beginPath();
+    ctx.arc(-2, -52, 4.5, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Gold Star Sunglasses on Head!
+    ctx.fillStyle = '#FACC15';
+    ctx.strokeStyle = '#0F172A';
+    ctx.lineWidth = 2.0;
+    [-4, 10].forEach((sx) => {
+      // Draw 5-point star lens
+      ctx.beginPath();
+      for (let i = 0; i < 5; i++) {
+        const outerA = (i * Math.PI * 2) / 5 - Math.PI / 2;
+        const innerA = outerA + Math.PI / 5;
+        const ox = sx + Math.cos(outerA) * 7.5;
+        const oy = -58 + Math.sin(outerA) * 7.5;
+        const ix = sx + Math.cos(innerA) * 3.8;
+        const iy = -58 + Math.sin(innerA) * 3.8;
+        if (i === 0) ctx.moveTo(ox, oy);
+        else ctx.lineTo(ox, oy);
+        ctx.lineTo(ix, iy);
+      }
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
+    });
+    // Sunglasses Bridge
+    ctx.strokeStyle = '#0F172A';
+    ctx.lineWidth = 2.5;
+    ctx.beginPath();
+    ctx.moveTo(3, -58);
+    ctx.lineTo(4, -58);
+    ctx.stroke();
+
+    // Arms
+    if (isMega) {
+      // Disco finger point up high toward disco ball!
+      ctx.strokeStyle = '#0F172A';
+      ctx.lineWidth = 4.0;
+      ctx.lineCap = 'round';
+      ctx.beginPath();
+      // Right arm pointing up-right!
+      ctx.moveTo(12, -32);
+      ctx.lineTo(26, -50);
+      ctx.stroke();
+      // Left arm groove on hip
+      ctx.beginPath();
+      ctx.moveTo(-12, -32);
+      ctx.lineTo(-20, -22);
+      ctx.stroke();
+
+      // Sparkle at finger tip
+      ctx.fillStyle = '#FEF08A';
+      ctx.beginPath();
+      ctx.arc(28, -52, 3.5, 0, Math.PI * 2);
+      ctx.fill();
+    } else {
+      // Normal cute dancing arms bobbing
+      const armBob = isFrozen ? 0 : Math.sin(beatTime * 2) * 5;
+      ctx.strokeStyle = '#0F172A';
+      ctx.lineWidth = 3.5;
+      ctx.lineCap = 'round';
+      ctx.beginPath();
+      ctx.moveTo(-10, -30);
+      ctx.lineTo(-18, -22 + armBob);
+      ctx.moveTo(10, -30);
+      ctx.lineTo(20, -26 - armBob);
+      ctx.stroke();
+    }
+
+    ctx.restore();
+    ctx.restore();
+  }
+
+  _drawSparklePup(ctx, x, y, scale, beatTime, isMega, isFrozen) {
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.scale(scale, scale);
+
+    const bounce = isFrozen ? 0 : Math.abs(Math.sin(beatTime * 2)) * (isMega ? 11 : 6) * 0.4;
+    const earFlop = isFrozen ? 0 : Math.sin(beatTime * 2) * (isMega ? 10 : 5) * 0.4;
+    const bodyRot = isFrozen ? 0.05 : -Math.sin(beatTime) * (isMega ? 0.14 : 0.08);
+
+    // Drop shadow
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.3)';
+    ctx.beginPath();
+    ctx.ellipse(0, 4, 25, 7, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Paws / Feet
+    ctx.fillStyle = '#D97706';
+    ctx.strokeStyle = '#0F172A';
+    ctx.lineWidth = 2.5;
+    ctx.beginPath();
+    if (ctx.roundRect) {
+      ctx.roundRect(-18, -8, 14, 10, 4);
+      ctx.roundRect(4, -8, 14, 10, 4);
+    } else {
+      ctx.rect(-18, -8, 14, 10);
+      ctx.rect(4, -8, 14, 10);
+    }
+    ctx.fill();
+    ctx.stroke();
+
+    // Body container
+    ctx.save();
+    ctx.translate(0, -bounce);
+    ctx.rotate(bodyRot);
+
+    // Wagging Puppy Tail
+    const tailWag = isFrozen ? 0 : Math.sin(beatTime * 4) * 12;
+    ctx.strokeStyle = '#D97706';
+    ctx.lineWidth = 5.0;
+    ctx.lineCap = 'round';
+    ctx.beginPath();
+    ctx.moveTo(14, -22);
+    ctx.quadraticCurveTo(28 + tailWag, -28, 32 + tailWag, -40);
+    ctx.stroke();
+
+    // Cream & Golden Puppy Torso
+    ctx.fillStyle = '#FBBF24';
+    ctx.strokeStyle = '#0F172A';
+    ctx.lineWidth = 3.0;
+    ctx.beginPath();
+    ctx.ellipse(0, -26, 18, 22, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+
+    // White Chest Fluff
+    ctx.fillStyle = '#FEF3C7';
+    ctx.beginPath();
+    ctx.ellipse(0, -25, 10, 14, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Big Rounded Puppy Head
+    ctx.fillStyle = '#FBBF24';
+    ctx.beginPath();
+    ctx.arc(0, -56, 19, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+
+    // White Snout Muzzle
+    ctx.fillStyle = '#FEF3C7';
+    ctx.beginPath();
+    ctx.ellipse(0, -50, 11, 8, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Black Nose
+    ctx.fillStyle = '#0F172A';
+    ctx.beginPath();
+    ctx.ellipse(0, -53, 3.8, 2.8, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Puppy Smile & Tongue
+    ctx.strokeStyle = '#0F172A';
+    ctx.lineWidth = 2.2;
+    ctx.beginPath();
+    ctx.arc(0, -50, 5.5, 0.2 * Math.PI, 0.8 * Math.PI);
+    ctx.stroke();
+    if (isMega) {
+      // Cute happy pink tongue sticking out!
+      ctx.fillStyle = '#FB7185';
+      ctx.beginPath();
+      ctx.arc(0, -47, 3.2, 0, Math.PI);
+      ctx.fill();
+    }
+
+    // Rosy Puppy Cheeks
+    ctx.fillStyle = 'rgba(251, 113, 133, 0.45)';
+    ctx.beginPath();
+    ctx.arc(-11, -50, 3.8, 0, Math.PI * 2);
+    ctx.arc(11, -50, 3.8, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Expressive Cartoon Eyes
+    ctx.fillStyle = '#FFFFFF';
+    ctx.strokeStyle = '#0F172A';
+    ctx.lineWidth = 1.8;
+    ctx.beginPath();
+    ctx.arc(-7, -60, 5.2, 0, Math.PI * 2);
+    ctx.arc(7, -60, 5.2, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+    // Pupils
+    ctx.fillStyle = '#0F172A';
+    ctx.beginPath();
+    ctx.arc(-6, -60, 2.8, 0, Math.PI * 2);
+    ctx.arc(6, -60, 2.8, 0, Math.PI * 2);
+    ctx.fill();
+    // Specular eye glints
+    ctx.fillStyle = '#FFFFFF';
+    ctx.beginPath();
+    ctx.arc(-5.2, -61.5, 1.2, 0, Math.PI * 2);
+    ctx.arc(6.8, -61.5, 1.2, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Floppy Puppy Ears (Left & Right)
+    ctx.fillStyle = '#D97706';
+    ctx.strokeStyle = '#0F172A';
+    ctx.lineWidth = 2.8;
+    // Left ear
+    ctx.beginPath();
+    ctx.ellipse(-19, -54 + earFlop * 0.4, 7, 14, 0.35, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+    // Right ear
+    ctx.beginPath();
+    ctx.ellipse(19, -54 - earFlop * 0.4, 7, 14, -0.35, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+
+    // DJ Headphones (Neon Pink/Magenta - Arched OVER the head!)
+    ctx.strokeStyle = '#EC4899';
+    ctx.lineWidth = 3.5;
+    ctx.beginPath();
+    // Arches clockwise over the top of the head from ear to ear
+    ctx.arc(0, -54, 21, Math.PI * 0.95, Math.PI * 0.05, false);
+    ctx.stroke();
+
+    // Headphone Ear Cushions
+    ctx.fillStyle = '#F43F5E';
+    ctx.strokeStyle = '#0F172A';
+    ctx.lineWidth = 2.0;
+    [-19, 19].forEach((hx) => {
+      ctx.beginPath();
+      ctx.ellipse(hx, -52, 5, 8.5, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+    });
+
+    // Paws / Arms
+    if (isMega) {
+      // Both paws pumped high in the air ("Raise the roof!")
+      ctx.strokeStyle = '#0F172A';
+      ctx.fillStyle = '#FBBF24';
+      ctx.lineWidth = 3.0;
+      // Left arm up
+      ctx.beginPath();
+      ctx.ellipse(-16, -48, 5, 10, -0.6, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+      // Right arm up
+      ctx.beginPath();
+      ctx.ellipse(16, -48, 5, 10, 0.6, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+    } else {
+      // One paw holding headphone like a DJ, other grooving on hip
+      ctx.strokeStyle = '#0F172A';
+      ctx.fillStyle = '#FBBF24';
+      ctx.lineWidth = 2.5;
+      // Right paw to headphone
+      ctx.beginPath();
+      ctx.ellipse(14, -48, 4.5, 8, 0.3, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+      // Left paw out grooving
+      const pawWiggle = isFrozen ? 0 : Math.sin(beatTime * 2) * 4;
+      ctx.beginPath();
+      ctx.ellipse(-14, -28 + pawWiggle, 5, 6, -0.2, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+    }
+
+    ctx.restore();
+    ctx.restore();
+  }
+
+  _drawRoboBeep(ctx, x, y, scale, beatTime, isMega, isFrozen) {
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.scale(scale, scale);
+
+    const bounce = isFrozen ? 0 : Math.abs(Math.sin(beatTime * 2)) * (isMega ? 9 : 4) * 0.4;
+    const bodyRot = isFrozen ? 0.08 : (Math.sin(beatTime) > 0 ? 0.05 : -0.05); // snappy robot steps
+
+    // Drop shadow
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.35)';
+    ctx.beginPath();
+    ctx.ellipse(0, 4, 26, 7, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Tread Feet
+    ctx.fillStyle = '#334155';
+    ctx.strokeStyle = '#0F172A';
+    ctx.lineWidth = 2.5;
+    [-18, 4].forEach((fx) => {
+      ctx.beginPath();
+      if (ctx.roundRect) ctx.roundRect(fx, -8, 15, 10, 3);
+      else ctx.rect(fx, -8, 15, 10);
+      ctx.fill();
+      ctx.stroke();
+      ctx.fillStyle = '#FACC15';
+      ctx.fillRect(fx + 2, -2, 11, 2.5);
+      ctx.fillStyle = '#334155';
+    });
+
+    ctx.save();
+    ctx.translate(0, -bounce);
+    ctx.rotate(bodyRot);
+
+    // Boxy Teal Robot Torso
+    ctx.fillStyle = '#06B6D4';
+    ctx.strokeStyle = '#0F172A';
+    ctx.lineWidth = 3.0;
+    ctx.beginPath();
+    if (ctx.roundRect) ctx.roundRect(-20, -36, 40, 28, 6);
+    else ctx.rect(-20, -36, 40, 28);
+    ctx.fill();
+    ctx.stroke();
+
+    // Front Chest Panel / Equalizer Bars
+    ctx.fillStyle = '#0F172A';
+    ctx.beginPath();
+    if (ctx.roundRect) ctx.roundRect(-14, -32, 28, 18, 4);
+    else ctx.rect(-14, -32, 28, 18);
+    ctx.fill();
+
+    // Equalizer LED Bars
+    const eqColors = ['#22C55E', '#FACC15', '#EF4444', '#38BDF8'];
+    [-10, -4, 2, 8].forEach((bx, idx) => {
+      const barH = isFrozen ? 6 : Math.max(3, Math.abs(Math.sin(beatTime * 3 + idx)) * 12);
+      ctx.fillStyle = eqColors[idx % eqColors.length];
+      ctx.fillRect(bx, -16 - barH, 4, barH);
+    });
+
+    // Neck joint
+    ctx.fillStyle = '#64748B';
+    ctx.fillRect(-6, -42, 12, 6);
+
+    // Retro Robot Head
+    ctx.fillStyle = '#06B6D4';
+    ctx.strokeStyle = '#0F172A';
+    ctx.lineWidth = 3.0;
+    ctx.beginPath();
+    if (ctx.roundRect) ctx.roundRect(-18, -70, 36, 28, 8);
+    else ctx.rect(-18, -70, 36, 28);
+    ctx.fill();
+    ctx.stroke();
+
+    // Side Ear Bolts
+    ctx.fillStyle = '#FACC15';
+    [-22, 18].forEach((ex) => {
+      ctx.fillRect(ex, -60, 4, 8);
+    });
+
+    // Antenna Stalk & Pulsing Neon Bulb
+    ctx.strokeStyle = '#64748B';
+    ctx.lineWidth = 2.5;
+    ctx.beginPath();
+    ctx.moveTo(0, -70);
+    ctx.lineTo(0, -82);
+    ctx.stroke();
+
+    const bulbPulse = isFrozen ? 0 : Math.max(0, Math.sin(beatTime * 2));
+    ctx.fillStyle = bulbPulse > 0.5 ? '#F43F5E' : '#FACC15';
+    ctx.beginPath();
+    ctx.arc(0, -84, 5, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+
+    // Digital Face Visor Screen
+    ctx.fillStyle = '#0F172A';
+    ctx.beginPath();
+    if (ctx.roundRect) ctx.roundRect(-13, -64, 26, 16, 4);
+    else ctx.rect(-13, -64, 26, 16);
+    ctx.fill();
+
+    // Glowing LED Green Eyes
+    ctx.fillStyle = '#4ADE80';
+    ctx.fillRect(-9, -60, 5, 5);
+    ctx.fillRect(4, -60, 5, 5);
+
+    // Digital Pixel Smile
+    ctx.fillStyle = '#4ADE80';
+    [-6, -2, 2, 6].forEach((px) => {
+      ctx.fillRect(px, -52, 2.5, 2.5);
+    });
+
+    // Robot Arms (Snappy 90-degree angular pop-and-lock poses!)
+    ctx.strokeStyle = '#0F172A';
+    ctx.lineWidth = 3.5;
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'miter';
+
+    if (isMega) {
+      // Classic Robot Dance: Right arm raised at 90 deg, left arm horizontal
+      ctx.beginPath();
+      ctx.moveTo(20, -28);
+      ctx.lineTo(34, -28);
+      ctx.lineTo(34, -48);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(-20, -28);
+      ctx.lineTo(-34, -28);
+      ctx.lineTo(-34, -14);
+      ctx.stroke();
+
+      // Yellow Claws
+      ctx.fillStyle = '#FACC15';
+      ctx.beginPath();
+      ctx.arc(34, -48, 4, 0, Math.PI * 2);
+      ctx.arc(-34, -14, 4, 0, Math.PI * 2);
+      ctx.fill();
+    } else {
+      // Idle Robot Wave
+      const waveAngle = isFrozen ? 0 : Math.sin(beatTime) * 8;
+      ctx.beginPath();
+      ctx.moveTo(-20, -28);
+      ctx.lineTo(-30, -20 + waveAngle);
+      ctx.moveTo(20, -28);
+      ctx.lineTo(30, -20 - waveAngle);
+      ctx.stroke();
+
+      ctx.fillStyle = '#FACC15';
+      ctx.beginPath();
+      ctx.arc(-30, -20 + waveAngle, 3.5, 0, Math.PI * 2);
+      ctx.arc(30, -20 - waveAngle, 3.5, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    ctx.restore();
+    ctx.restore();
+  }
+
+  _drawCosmicBunny(ctx, x, y, scale, beatTime, isMega, isFrozen) {
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.scale(scale, scale);
+
+    const bounce = isFrozen ? 0 : Math.abs(Math.sin(beatTime * 2)) * (isMega ? 12 : 6) * 0.4;
+    const earBob = isFrozen ? 0 : Math.sin(beatTime * 2) * (isMega ? 12 : 6) * 0.4;
+    const bodyRot = isFrozen ? -0.06 : Math.sin(beatTime) * (isMega ? 0.12 : 0.06);
+
+    // Drop shadow
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.35)';
+    ctx.beginPath();
+    ctx.ellipse(0, 4, 25, 7, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Cute Paws / Shoes
+    ctx.fillStyle = '#F472B6';
+    ctx.strokeStyle = '#0F172A';
+    ctx.lineWidth = 2.5;
+    [-18, 4].forEach((bx) => {
+      ctx.beginPath();
+      if (ctx.roundRect) ctx.roundRect(bx, -8, 14, 10, [5, 5, 2, 2]);
+      else ctx.rect(bx, -8, 14, 10);
+      ctx.fill();
+      ctx.stroke();
+      ctx.fillStyle = '#FFFFFF';
+      ctx.fillRect(bx, 0, 14, 2.5);
+      ctx.fillStyle = '#F472B6';
+    });
+
+    ctx.save();
+    ctx.translate(0, -bounce);
+    ctx.rotate(bodyRot);
+
+    // Cotton Ball Fluffy Tail
+    ctx.fillStyle = '#FFFFFF';
+    ctx.strokeStyle = '#0F172A';
+    ctx.lineWidth = 2.5;
+    ctx.beginPath();
+    ctx.arc(18, -20, 8, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+
+    // Cute Pastel Bunny Torso
+    ctx.fillStyle = '#F472B6';
+    ctx.strokeStyle = '#0F172A';
+    ctx.lineWidth = 3.0;
+    ctx.beginPath();
+    ctx.ellipse(0, -25, 18, 22, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+
+    // White Fluffy Tummy
+    ctx.fillStyle = '#FDF2F8';
+    ctx.beginPath();
+    ctx.ellipse(0, -24, 10, 14, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Rounded Bunny Head
+    ctx.fillStyle = '#F472B6';
+    ctx.beginPath();
+    ctx.arc(0, -52, 19, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+
+    // Tall Bunny Ears (Bouncing to the beat!)
+    [-9, 9].forEach((ex, idx) => {
+      const flop = idx === 0 ? earBob : -earBob;
+      ctx.save();
+      ctx.translate(ex, -68);
+      ctx.rotate((idx === 0 ? -0.15 : 0.15) + flop * 0.02);
+
+      // Outer Pink Ear
+      ctx.fillStyle = '#F472B6';
+      ctx.strokeStyle = '#0F172A';
+      ctx.lineWidth = 2.8;
+      ctx.beginPath();
+      ctx.ellipse(0, -18, 6.5, 20, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+
+      // Inner Soft White/Pink Ear
+      ctx.fillStyle = '#FDF2F8';
+      ctx.beginPath();
+      ctx.ellipse(0, -17, 3.5, 14, 0, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.restore();
+    });
+
+    // Sparkly Gold Star Headband (Arched over top of head!)
+    ctx.strokeStyle = '#FACC15';
+    ctx.lineWidth = 3.0;
+    ctx.beginPath();
+    ctx.arc(0, -56, 20, Math.PI * 0.95, Math.PI * 0.05, false);
+    ctx.stroke();
+    // Star Ornament on Headband
+    ctx.fillStyle = '#FACC15';
+    ctx.strokeStyle = '#0F172A';
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    for (let i = 0; i < 5; i++) {
+      const oa = (i * Math.PI * 2) / 5 - Math.PI / 2;
+      const ia = oa + Math.PI / 5;
+      const ox = -14 + Math.cos(oa) * 6;
+      const oy = -62 + Math.sin(oa) * 6;
+      const ix = -14 + Math.cos(ia) * 3;
+      const iy = -62 + Math.sin(ia) * 3;
+      if (i === 0) ctx.moveTo(ox, oy);
+      else ctx.lineTo(ox, oy);
+      ctx.lineTo(ix, iy);
+    }
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+
+    // Cute Anime Bunny Eyes
+    ctx.fillStyle = '#0F172A';
+    ctx.beginPath();
+    ctx.ellipse(-7, -54, 3.2, 5.0, 0, 0, Math.PI * 2);
+    ctx.ellipse(7, -54, 3.2, 5.0, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Eye Twinkle Highlights
+    ctx.fillStyle = '#FFFFFF';
+    ctx.beginPath();
+    ctx.arc(-6.5, -56, 1.4, 0, Math.PI * 2);
+    ctx.arc(7.5, -56, 1.4, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Tiny Pink Nose
+    ctx.fillStyle = '#FB7185';
+    ctx.beginPath();
+    ctx.arc(0, -48, 2.2, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Sweet Bunny Smile & Little Bucktooth
+    ctx.strokeStyle = '#0F172A';
+    ctx.lineWidth = 2.0;
+    ctx.beginPath();
+    ctx.arc(0, -46, 4.5, 0.2 * Math.PI, 0.8 * Math.PI);
+    ctx.stroke();
+
+    // Rosy Cheeks
+    ctx.fillStyle = 'rgba(251, 113, 133, 0.50)';
+    ctx.beginPath();
+    ctx.arc(-11, -48, 3.8, 0, Math.PI * 2);
+    ctx.arc(11, -48, 3.8, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Arms
+    if (isMega) {
+      // Joyful Bunny Hop Clapping Arms
+      ctx.strokeStyle = '#0F172A';
+      ctx.fillStyle = '#F472B6';
+      ctx.lineWidth = 2.8;
+      ctx.beginPath();
+      ctx.ellipse(-14, -42, 5, 9, -0.7, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.ellipse(14, -42, 5, 9, 0.7, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+
+      // Floating glitter star
+      ctx.fillStyle = '#FEF08A';
+      ctx.beginPath();
+      ctx.arc(0, -42, 3.5, 0, Math.PI * 2);
+      ctx.fill();
+    } else {
+      // Sweet Side Sway Arms
+      const armSway = isFrozen ? 0 : Math.sin(beatTime * 2) * 4;
+      ctx.strokeStyle = '#0F172A';
+      ctx.fillStyle = '#F472B6';
+      ctx.lineWidth = 2.6;
+      ctx.beginPath();
+      ctx.ellipse(-14, -28 + armSway, 4.5, 7, -0.2, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.ellipse(14, -28 - armSway, 4.5, 7, 0.2, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+    }
+
+    ctx.restore();
     ctx.restore();
   }
 }

@@ -22,6 +22,7 @@ export class SettingsManager {
 
       // Gameplay & Kid Forgiveness + 1P/2P Mode
       twoPlayerMode: '1p', // '1p' (Fastest 60 FPS for Emilia) | 'auto' (2P) | 'always_2p'
+      halloweenTheme: true, // Halloween theme enabled by default for Halloween week!
       hitboxMultiplier: 1.35, // Generous default for Emilia
       avatarMode: 'stickers', // 'stickers' | 'avatar' | 'skeleton'
       hideVideoInAvatarMode: false,
@@ -65,6 +66,9 @@ export class SettingsManager {
         if (!parsed.playerModeMigratedV2) {
           parsed.twoPlayerMode = '1p';
           parsed.playerModeMigratedV2 = true;
+        }
+        if (parsed.halloweenTheme === undefined) {
+          parsed.halloweenTheme = true;
         }
         this.data = {
           ...this.data,

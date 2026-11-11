@@ -379,8 +379,8 @@ public class MainActivity extends BridgeActivity {
                     YuvImage yuv = new YuvImage(mNv21Buffer, ImageFormat.NV21, w, h, null);
                     synchronized (mReusableBaos) {
                         mReusableBaos.reset();
-                        // 88% JPEG quality: crisp Sony 4K sensor detail with fast compression
-                        yuv.compressToJpeg(new Rect(0, 0, w, h), 88, mReusableBaos);
+                        // 72% JPEG quality: optimal balance of sharp visual quality and low CPU compression time on Tegra X1
+                        yuv.compressToJpeg(new Rect(0, 0, w, h), 72, mReusableBaos);
                         int count = mReusableBaos.count;
                         int writeIdx = 1 - mActiveBufferIdx;
                         if (mJpegBuffers[writeIdx].length < count) {

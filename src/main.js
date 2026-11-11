@@ -15,7 +15,7 @@ import { logger } from './logger.js';
 
 const video = document.getElementById('webcam-video');
 const canvas = document.getElementById('game-canvas');
-const ctx = canvas.getContext('2d');
+const ctx = canvas.getContext('2d', { alpha: false });
 
 // Core Modules
 const tracker = new PoseTracker(video);
@@ -59,6 +59,7 @@ function dismissSplashScreen() {
 
 // DOM Elements
 const modeSubtitle = document.getElementById('mode-subtitle');
+const scoreBoard = document.querySelector('.score-board');
 const starVal = document.getElementById('star-val');
 const starPill = document.getElementById('star-pill');
 const starLabelText = document.getElementById('star-label-text');
@@ -73,6 +74,7 @@ const btnBrandHome = document.getElementById('btn-brand-home');
 const btnHome = document.getElementById('btn-home');
 const btnPlayerMode = document.getElementById('btn-player-mode');
 const btnAvatarMode = document.getElementById('btn-avatar-mode');
+const btnHalloweenTheme = document.getElementById('btn-halloween-theme');
 const btnToggleLab = document.getElementById('btn-toggle-lab');
 const btnCloseLab = document.getElementById('btn-close-lab');
 const labDrawer = document.getElementById('lab-drawer');
@@ -246,7 +248,13 @@ function applyPersistentSettingsToUI() {
   btnAvatarMode.textContent = modeObj.label;
 
   const bCount = d.balloonCount || 1;
-  btnBalloonCount.textContent = `🎈 ${bCount} Balloon${bCount > 1 ? 's' : ''}`;
+  const isHw = Boolean(d.halloweenTheme);
+  btnBalloonCount.textContent = isHw
+    ? `🎃 ${bCount} Pumpkin${bCount > 1 ? 's' : ''}`
+    : `🎈 ${bCount} Balloon${bCount > 1 ? 's' : ''}`;
+  if (btnHalloweenTheme) {
+    btnHalloweenTheme.textContent = isHw ? '🎃 Halloween Theme: ON' : '🎈 Halloween Theme: OFF';
+  }
 
   if (chkMusicEnabled) chkMusicEnabled.checked = d.musicEnabled !== false;
   const mVolPct = Math.round((d.musicVolume ?? 0.16) * 100);
@@ -260,9 +268,10 @@ function applyPersistentSettingsToUI() {
 }
 
 applyPersistentSettingsToUI();
+switchScreen('hub');
 
 // Character Soundboard & Compact Golden Star Burst Handler (No Big Text Box!)
-function triggerMilestoneCelebration(scoreOrForce = false) {
+function triggerMilestoneCelebration(scoreOrForce = false, playAudio = true) {
   const isManualTest = scoreOrForce === true;
   const newStars = settings.awardStar();
   starVal.textContent = newStars;
@@ -279,14 +288,16 @@ function triggerMilestoneCelebration(scoreOrForce = false) {
     }, 2200);
   }
 
-  sound.playCharacterSoundboard(isManualTest);
+  if (playAudio) {
+    sound.playCharacterSoundboard(isManualTest);
+  }
 }
 
 keepyGame.onMilestone = () => triggerMilestoneCelebration(false);
 hatGame.onMilestone = () => triggerMilestoneCelebration(false);
 butterflyGame.onMilestone = () => triggerMilestoneCelebration(false);
 posesGame.onMilestone = () => triggerMilestoneCelebration(false);
-danceGame.onMilestone = () => triggerMilestoneCelebration(false);
+danceGame.onMilestone = () => triggerMilestoneCelebration(false, false); // Visual fireworks & star only - keep music uninterrupted!
 disasterGame.onMilestone = () => triggerMilestoneCelebration(false);
 disasterGame.onReturnToHub = () => switchScreen('hub');
 
@@ -419,8 +430,6 @@ function switchScreen(screenId) {
     sound.stopDanceTrack();
   }
 
-  // Always keep total stars visible across the app
-  starPill?.classList.remove('hidden');
   starVal.textContent = settings.data.starsEarned || 0;
 
   if (screenId === 'hub') {
@@ -428,46 +437,56 @@ function switchScreen(screenId) {
     modeSubtitle.textContent = 'Choose a Game!';
     btnHome?.classList.add('hidden');
     avatar.hideHeadSticker = false;
-    if (starLabelText) starLabelText.textContent = '⭐ STARS';
-    // Hide arcade SCORE and BEST pills on the Home Hub
+    // Hide score bar and all score pills on the Home Hub
+    scoreBoard?.classList.add('hidden');
+    starPill?.classList.add('hidden');
     currentScorePill?.classList.add('hidden');
     bestScorePill?.classList.add('hidden');
-    sound.speakVoice('welcome_hub', true);
+    if (welcomeSpoken) sound.speakVoice('welcome_hub', true);
   } else if (screenId === 'keepy') {
-    modeSubtitle.textContent = '🎈 Keepy Uppy';
+    const isHw = Boolean(settings.data.halloweenTheme);
+    modeSubtitle.textContent = isHw ? '🎃 Pumpkin Pop' : '🎈 Keepy Uppy';
     btnHome?.classList.remove('hidden');
     avatar.hideHeadSticker = false;
+    scoreBoard?.classList.remove('hidden');
+    starPill?.classList.remove('hidden');
     if (starLabelText) starLabelText.textContent = '⭐';
     currentScorePill?.classList.remove('hidden');
     bestScorePill?.classList.remove('hidden');
-    scoreLabelText.textContent = '🎈 HITS';
+    scoreLabelText.textContent = isHw ? '🎃 HITS' : '🎈 HITS';
     scoreVal.textContent = keepyGame.score;
     bestLabelText.textContent = '🏆 BEST';
     bestVal.textContent = keepyGame.bestScore;
     keepyGame.resetBalloons(safeBounds);
     sound.speakVoice('start_keepy', true);
   } else if (screenId === 'hats') {
-    modeSubtitle.textContent = '👑 Hat Stacker';
+    const isHw = Boolean(settings.data.halloweenTheme);
+    modeSubtitle.textContent = isHw ? '🎭 Mask Stacker' : '👑 Hat Stacker';
     btnHome?.classList.remove('hidden');
     avatar.hideHeadSticker = true;
     avatar.showHatAchievements = true;
+    scoreBoard?.classList.remove('hidden');
+    starPill?.classList.remove('hidden');
     if (starLabelText) starLabelText.textContent = '⭐';
     currentScorePill?.classList.remove('hidden');
     bestScorePill?.classList.remove('hidden');
-    scoreLabelText.textContent = '👑 TOWER';
+    scoreLabelText.textContent = isHw ? '🎭 TOWER' : '👑 TOWER';
     scoreVal.textContent = hatGame.score;
     bestLabelText.textContent = '🏆 BEST';
     bestVal.textContent = hatGame.bestScore;
     hatGame.reset(safeBounds);
     sound.speakVoice('start_hats', true);
   } else if (screenId === 'butterflies') {
-    modeSubtitle.textContent = '🦋 Butterfly Pop';
+    const isHw = Boolean(settings.data.halloweenTheme);
+    modeSubtitle.textContent = isHw ? '🦇 Bat & Ghost Pop' : '🦋 Butterfly Pop';
     btnHome?.classList.remove('hidden');
     avatar.hideHeadSticker = false;
+    scoreBoard?.classList.remove('hidden');
+    starPill?.classList.remove('hidden');
     if (starLabelText) starLabelText.textContent = '⭐';
     currentScorePill?.classList.remove('hidden');
     bestScorePill?.classList.remove('hidden');
-    scoreLabelText.textContent = '🦋 POPPED';
+    scoreLabelText.textContent = isHw ? '🦇 POPPED' : '🦋 POPPED';
     scoreVal.textContent = butterflyGame.score;
     bestLabelText.textContent = '🏆 BEST';
     bestVal.textContent = butterflyGame.bestScore;
@@ -477,8 +496,9 @@ function switchScreen(screenId) {
     modeSubtitle.textContent = '📸 Silly Poses';
     btnHome?.classList.remove('hidden');
     avatar.hideHeadSticker = false;
-    if (starLabelText) starLabelText.textContent = '⭐';
     // Creative photo booth — hide score pills
+    scoreBoard?.classList.add('hidden');
+    starPill?.classList.add('hidden');
     currentScorePill?.classList.add('hidden');
     bestScorePill?.classList.add('hidden');
     posesGame.reset();
@@ -487,8 +507,9 @@ function switchScreen(screenId) {
     modeSubtitle.textContent = '🪩 Dance Party';
     btnHome?.classList.remove('hidden');
     avatar.hideHeadSticker = true;
-    if (starLabelText) starLabelText.textContent = '⭐';
     // Unified Groove Meter on canvas handles hype — hide top score pills
+    scoreBoard?.classList.add('hidden');
+    starPill?.classList.add('hidden');
     currentScorePill?.classList.add('hidden');
     bestScorePill?.classList.add('hidden');
     danceGame.reset();
@@ -497,7 +518,8 @@ function switchScreen(screenId) {
     modeSubtitle.textContent = '🌋 Floor is Lava';
     btnHome?.classList.remove('hidden');
     avatar.hideHeadSticker = false;
-    if (starLabelText) starLabelText.textContent = '⭐';
+    scoreBoard?.classList.remove('hidden');
+    starPill?.classList.add('hidden');
     currentScorePill?.classList.remove('hidden');
     bestScorePill?.classList.add('hidden');
     scoreLabelText.textContent = 'ROUND';
@@ -663,9 +685,13 @@ function updateMemoryStatusUI() {
 
 function openLabDrawer() {
   labDrawer.classList.remove('closed');
+  labDrawer.scrollTop = 0;
   updateMemoryStatusUI();
   setTimeout(() => {
-    if (btnAvatarMode) {
+    const firstChip = labDrawer.querySelector('.drawer-nav-chips .nav-chip');
+    if (firstChip) {
+      firstChip.focus();
+    } else if (btnAvatarMode) {
       btnAvatarMode.focus();
     } else {
       btnRemoteHub.focus();
@@ -694,6 +720,27 @@ if (btnToggleLab) {
   btnToggleLab.addEventListener('click', toggleLabDrawer);
 }
 btnCloseLab.addEventListener('click', closeLabDrawer);
+
+// Auto-center any focused element in the settings drawer so it never hides below the fold
+labDrawer.addEventListener('focusin', (e) => {
+  if (e.target && e.target !== labDrawer && !labDrawer.classList.contains('closed')) {
+    e.target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }
+});
+
+// Category Jump Chips navigation (One-click jump directly to Camera, Audio, Safe-Zone, etc.)
+document.querySelectorAll('.drawer-nav-chips .nav-chip').forEach((chip) => {
+  chip.addEventListener('click', () => {
+    sound.init();
+    const targetId = chip.getAttribute('data-target');
+    const sec = document.getElementById(targetId);
+    if (sec) {
+      sec.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      const firstInput = sec.querySelector('button, input, select');
+      if (firstInput) firstInput.focus();
+    }
+  });
+});
 
 if (btnViewLogs) {
   btnViewLogs.addEventListener('click', async () => {
@@ -762,6 +809,130 @@ window.addEventListener('keydown', (e) => {
       btnConfirmOk.focus();
       return;
     }
+  }
+
+  // Full Shield TV Remote & Controller D-Pad Navigation inside Settings Drawer
+  if (drawerOpen) {
+    if (e.key === 'Escape' || e.key === 'Backspace' || e.key === 'BrowserBack') {
+      e.preventDefault();
+      closeLabDrawer();
+      return;
+    }
+
+    const focusables = Array.from(
+      labDrawer.querySelectorAll(
+        'button:not([disabled]), input:not([disabled]):not([type="hidden"]), select:not([disabled])'
+      )
+    ).filter((el) => el.offsetParent !== null && !el.closest('.hidden'));
+
+    const activeEl = document.activeElement;
+    const curIdx = focusables.indexOf(activeEl);
+
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      const nextIdx = curIdx >= 0 && curIdx < focusables.length - 1 ? curIdx + 1 : 0;
+      const target = focusables[nextIdx];
+      if (target) {
+        target.focus();
+        target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }
+      return;
+    }
+
+    if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      const prevIdx = curIdx > 0 ? curIdx - 1 : focusables.length - 1;
+      const target = focusables[prevIdx];
+      if (target) {
+        target.focus();
+        target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }
+      return;
+    }
+
+    if (e.key === 'ArrowLeft') {
+      if (activeEl && activeEl.type === 'range') {
+        e.preventDefault();
+        const step = Number(activeEl.step) || 1;
+        const min = Number(activeEl.min) || 0;
+        activeEl.value = Math.max(min, Number(activeEl.value) - step);
+        activeEl.dispatchEvent(new Event('input', { bubbles: true }));
+        activeEl.dispatchEvent(new Event('change', { bubbles: true }));
+        return;
+      }
+      if (activeEl && activeEl.tagName === 'SELECT') {
+        e.preventDefault();
+        if (activeEl.selectedIndex > 0) {
+          activeEl.selectedIndex--;
+          activeEl.dispatchEvent(new Event('change', { bubbles: true }));
+        }
+        return;
+      }
+      if (activeEl && activeEl.classList.contains('nav-chip')) {
+        e.preventDefault();
+        const chips = Array.from(labDrawer.querySelectorAll('.nav-chip'));
+        const chipIdx = chips.indexOf(activeEl);
+        if (chipIdx > 0) {
+          chips[chipIdx - 1].focus();
+        }
+        return;
+      }
+      if (activeEl === btnCloseLab) {
+        e.preventDefault();
+        closeLabDrawer();
+        return;
+      }
+    }
+
+    if (e.key === 'ArrowRight') {
+      if (activeEl && activeEl.type === 'range') {
+        e.preventDefault();
+        const step = Number(activeEl.step) || 1;
+        const max = Number(activeEl.max) || 100;
+        activeEl.value = Math.min(max, Number(activeEl.value) + step);
+        activeEl.dispatchEvent(new Event('input', { bubbles: true }));
+        activeEl.dispatchEvent(new Event('change', { bubbles: true }));
+        return;
+      }
+      if (activeEl && activeEl.tagName === 'SELECT') {
+        e.preventDefault();
+        if (activeEl.selectedIndex < activeEl.options.length - 1) {
+          activeEl.selectedIndex++;
+          activeEl.dispatchEvent(new Event('change', { bubbles: true }));
+        }
+        return;
+      }
+      if (activeEl && activeEl.classList.contains('nav-chip')) {
+        e.preventDefault();
+        const chips = Array.from(labDrawer.querySelectorAll('.nav-chip'));
+        const chipIdx = chips.indexOf(activeEl);
+        if (chipIdx < chips.length - 1) {
+          chips[chipIdx + 1].focus();
+        }
+        return;
+      }
+    }
+
+    if ((e.key === 'Enter' || e.key === 'Select') && activeEl && activeEl.type === 'checkbox') {
+      e.preventDefault();
+      activeEl.checked = !activeEl.checked;
+      activeEl.dispatchEvent(new Event('change', { bubbles: true }));
+      return;
+    }
+
+    if (e.key === 'PageDown' || e.key === 'ChannelDown') {
+      e.preventDefault();
+      labDrawer.scrollBy({ top: 240, behavior: 'smooth' });
+      return;
+    }
+
+    if (e.key === 'PageUp' || e.key === 'ChannelUp') {
+      e.preventDefault();
+      labDrawer.scrollBy({ top: -240, behavior: 'smooth' });
+      return;
+    }
+
+    return;
   }
 
   if (e.key === 'Escape' || e.key === 'Backspace' || e.key === 'BrowserBack') {
@@ -842,6 +1013,32 @@ btnAvatarMode.addEventListener('click', () => {
   showToast(`Switched to ${next.label}`);
 });
 
+if (btnHalloweenTheme) {
+  btnHalloweenTheme.addEventListener('click', () => {
+    sound.init();
+    const nextHw = !settings.data.halloweenTheme;
+    settings.data.halloweenTheme = nextHw;
+    settings.save();
+    flashSavedIndicator();
+    btnHalloweenTheme.textContent = nextHw ? '🎃 Halloween Theme: ON' : '🎈 Halloween Theme: OFF';
+    const bCount = settings.data.balloonCount || 1;
+    btnBalloonCount.textContent = nextHw
+      ? `🎃 ${bCount} Pumpkin${bCount > 1 ? 's' : ''}`
+      : `🎈 ${bCount} Balloon${bCount > 1 ? 's' : ''}`;
+    if (activeScreen === 'keepy') {
+      modeSubtitle.textContent = nextHw ? '🎃 Pumpkin Pop' : '🎈 Keepy Uppy';
+      scoreLabelText.textContent = nextHw ? '🎃 HITS' : '🎈 HITS';
+    } else if (activeScreen === 'hats') {
+      modeSubtitle.textContent = nextHw ? '🎭 Mask Stacker' : '👑 Hat Stacker';
+      scoreLabelText.textContent = nextHw ? '🎭 TOWER' : '👑 TOWER';
+    } else if (activeScreen === 'butterflies') {
+      modeSubtitle.textContent = nextHw ? '🦇 Bat & Ghost Pop' : '🦋 Butterfly Pop';
+      scoreLabelText.textContent = nextHw ? '🦇 POPPED' : '🦋 POPPED';
+    }
+    showToast(nextHw ? '🎃 Spooky-Cute Halloween Theme ON!' : '🎈 Classic Theme Restored!');
+  });
+}
+
 btnBalloonCount.addEventListener('click', () => {
   sound.init();
   const nextCount = ((settings.data.balloonCount || 1) % 4) + 1;
@@ -850,7 +1047,10 @@ btnBalloonCount.addEventListener('click', () => {
   flashSavedIndicator();
   const bounds = calibration.getSafeBounds(canvas.width, canvas.height);
   keepyGame.setBalloonCount(nextCount, bounds);
-  btnBalloonCount.textContent = `🎈 ${nextCount} Balloon${nextCount > 1 ? 's' : ''}`;
+  const isHw = Boolean(settings.data.halloweenTheme);
+  btnBalloonCount.textContent = isHw
+    ? `🎃 ${nextCount} Pumpkin${nextCount > 1 ? 's' : ''}`
+    : `🎈 ${nextCount} Balloon${nextCount > 1 ? 's' : ''}`;
 });
 
 if (chkMusicEnabled) {
@@ -1057,26 +1257,48 @@ let lastTime = performance.now();
 let liveWarmupFrames = 0;
 
 function renderLoop(now) {
-  const tFrameStart = performance.now();
-  const rawDt = Math.min(0.05, (now - lastTime) / 1000);
-  lastTime = now;
-  const dt = isPaused ? 0 : rawDt;
+  try {
+    const tFrameStart = performance.now();
+    const rawDt = Math.min(0.05, (now - lastTime) / 1000);
+    lastTime = now;
+    const dt = isPaused ? 0 : rawDt;
 
-  const dtReal = (tFrameStart - perfLastTime) / 1000;
-  perfLastTime = tFrameStart;
-  if (dtReal > 0) {
-    const curFps = 1 / dtReal;
-    if (perfFrameCount > 10 && curFps < perfMinFps) {
-      perfMinFps = curFps;
+    const dtReal = (tFrameStart - perfLastTime) / 1000;
+    perfLastTime = tFrameStart;
+    if (dtReal > 0) {
+      const curFps = 1 / dtReal;
+      if (perfFrameCount > 10 && curFps < perfMinFps) {
+        perfMinFps = curFps;
+      }
+      if (dtReal > 0.028) {
+        perfFrameDips++;
+      }
     }
-    if (dtReal > 0.028) {
-      perfFrameDips++;
-    }
-  }
-  perfFrameCount++;
+    perfFrameCount++;
 
-  const cw = canvas.width;
-  const ch = canvas.height;
+    const cw = canvas.width;
+    const ch = canvas.height;
+
+    // Allow Shield TV controller analog stick and trigger scrolling when settings drawer is open
+    if (!labDrawer.classList.contains('closed') && typeof navigator.getGamepads === 'function') {
+      const gps = navigator.getGamepads();
+      for (let i = 0; i < gps.length; i++) {
+        const gp = gps[i];
+        if (!gp) continue;
+        const rY = gp.axes[3] ?? 0;
+        const lY = gp.axes[1] ?? 0;
+        const stick = Math.abs(rY) > 0.25 ? rY : (Math.abs(lY) > 0.35 ? lY : 0);
+        if (Math.abs(stick) > 0.25) {
+          labDrawer.scrollTop += stick * 18;
+        }
+        if (gp.buttons[6]?.pressed) labDrawer.scrollTop -= 14;
+        if (gp.buttons[7]?.pressed) labDrawer.scrollTop += 14;
+      }
+    }
+
+    // Guaranteed frame reset: restore default matrix and full opacity against any unhandled stack corruption
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.globalAlpha = 1.0;
 
   // 1. Clear Canvas
   ctx.fillStyle = '#0F172A';
@@ -1124,7 +1346,7 @@ function renderLoop(now) {
   }
 
   // 3. Detect Player Pose(s) (1P or 2P!) & Update Hitboxes
-  const player = tracker.detectFrame(cw, ch, calibration.hitboxMultiplier);
+  const player = tracker.detectFrame(cw, ch, calibration.hitboxMultiplier, dt);
 
   // Determine if Rainbow Sparkle Hand Trails should glow!
   const currentScore =
@@ -1145,6 +1367,7 @@ function renderLoop(now) {
 
   // 4. Draw Stickers / Cartoon Avatar / Skeleton (skipped in Silly Poses so real faces & poses are uncovered!)
   if (activeScreen !== 'poses') {
+    ctx.globalAlpha = 1.0;
     avatar.updateAndRender(ctx, player, cw, ch, dt);
   }
 
@@ -1216,7 +1439,7 @@ function renderLoop(now) {
       }
     } else if (activeScreen === 'dance') {
       if (!isPaused) {
-        danceGame.update(dt, safeBounds, player, pointer, triggerMilestoneCelebration);
+        danceGame.update(dt, safeBounds, player, pointer, (score) => triggerMilestoneCelebration(score, false));
       }
       danceGame.render(ctx, cw, ch, safeBounds, player);
       if (!isPaused) {
@@ -1275,10 +1498,13 @@ function renderLoop(now) {
     perfLastLogTime = tFrameStart;
   }
 
-  // Consume one-frame click event
-  pointer.clicked = false;
-
-  requestAnimationFrame(renderLoop);
+    // Consume one-frame click event
+    pointer.clicked = false;
+  } catch (err) {
+    logger.error('RenderLoop', 'Unhandled renderLoop exception: ' + (err?.stack || err));
+  } finally {
+    requestAnimationFrame(renderLoop);
+  }
 }
 
 requestAnimationFrame(renderLoop);

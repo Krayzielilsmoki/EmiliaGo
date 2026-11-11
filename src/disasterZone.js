@@ -41,6 +41,10 @@ export class DisasterZoneGame {
     this.victoryRockets = [];
     this.victoryConfetti = [];
     this.rocketSpawnTimer = 0;
+    this._lavaGrad = null;
+    this._lavaGradKey = '';
+    this._waterGrad = null;
+    this._waterGradKey = '';
     this.playAgainHoldProgress = 0;
     this.playAgainTickStep = -1;
 
@@ -155,6 +159,10 @@ export class DisasterZoneGame {
     this.victoryRockets = [];
     this.victoryConfetti = [];
     this.rocketSpawnTimer = 0;
+    this._lavaGrad = null;
+    this._lavaGradKey = '';
+    this._waterGrad = null;
+    this._waterGradKey = '';
     this.playAgainHoldProgress = 0;
     this.playAgainTickStep = -1;
     this.hazardFailed = false;
@@ -924,10 +932,10 @@ export class DisasterZoneGame {
         }
 
         const elapsedHazard = (performance.now() - this.phaseStartTime) / 1000;
-        const isGracePeriod = elapsedHazard < 1.2;
+        const isGracePeriod = elapsedHazard < 2.8;
 
         if (isGracePeriod) {
-          // Leniency grace window: Emilia is actively striking her fun statue pose!
+          // Leniency grace window (2.8s): Emilia is actively striking her fun statue pose!
           this.isPlayerSafe = true;
           this.freezeAnchorX = originX;
           this.freezeAnchorY = originY;
@@ -1179,7 +1187,11 @@ export class DisasterZoneGame {
               const col = cols[key];
               if (col && col.visibility > 0.25) {
                 minPlayerX = Math.min(minPlayerX, col.x - col.r);
-                runSpeed += Math.hypot(col.vx || 0, col.vy || 0);
+                const rawSp = Math.hypot(col.vx || 0, col.vy || 0);
+                // Deadband filter camera sensor jitter (1-3px natural noise)
+                if (rawSp > 3.0) {
+                  runSpeed += (rawSp - 3.0) * 1.5;
+                }
               }
             }
           }
@@ -1189,13 +1201,16 @@ export class DisasterZoneGame {
             const hipY = (lms[23].y + lms[24].y) / 2;
             if (this._lastTRexHipY !== undefined) {
               const dHip = Math.abs(hipY - this._lastTRexHipY);
-              runSpeed += dHip * 4.0;
+              // Deadband filter slight postural sway
+              if (dHip > 3.0) {
+                runSpeed += (dHip - 3.0) * 4.5;
+              }
             }
             this._lastTRexHipY = hipY;
           }
         }
-        if (pointer && pointer.active) {
-          runSpeed += 40;
+        if (pointer && pointer.active && pointer.speed > 80) {
+          runSpeed += Math.min(60, pointer.speed * 0.15);
         }
 
         if (minPlayerX > safeBounds.right - 40) {
@@ -1203,41 +1218,47 @@ export class DisasterZoneGame {
         }
 
         // Smooth running speed detection
-        this.tRex.runSpeedSmooth = this.tRex.runSpeedSmooth * 0.80 + runSpeed * 0.20;
+        this.tRex.runSpeedSmooth = this.tRex.runSpeedSmooth * 0.82 + runSpeed * 0.18;
         const spd = this.tRex.runSpeedSmooth;
-        const isRunning = spd > 30;
+        // Require energetic continuous running (spd >= 75) to be considered safe
+        const isRunning = spd >= 75;
         this.isPlayerSafe = isRunning;
 
         // Ground level for T-Rex
         this.tRex.y = safeBounds.bottom - 45;
 
         // Animate legs, mouth chomping, and flash timer
-        this.tRex.legPhase += dt * (spd < 15 ? 16 : isRunning ? 14 : 10);
-        this.tRex.mouthPhase += dt * (spd < 15 ? 16 : 9);
+        this.tRex.legPhase += dt * (spd < 20 ? 16 : isRunning ? 14 : 10);
+        this.tRex.mouthPhase += dt * (spd < 20 ? 16 : 9);
 
         if (this.tRex.flashTimer > 0) {
           this.tRex.flashTimer = Math.max(0, this.tRex.flashTimer - dt);
         }
 
         // Dynamic T-Rex Movement:
-        // - Inactive / stopped (< 15): T-Rex charges fast towards player (+320 px/s)
-        // - Moving slowly (15 <= spd < 32): T-Rex still closes in steadily (+180 to +70 px/s)
-        // - Moderate effort (32 <= spd < 46): T-Rex is held at bay (-20 px/s)
-        // - Very active running (spd >= 46): T-Rex is pushed into fast retreat (-200 to -360 px/s)
+        // - Inactive / standing still (< 25): T-Rex charges fast towards player (+260 px/s)
+        // - Minimal movement / walking (25 <= spd < 50): T-Rex still advances steadily (+150 to +60 px/s)
+        // - Moderate movement / jogging (50 <= spd < 85): T-Rex creeps closer or holds ground (+40 to +5 px/s) - DOES NOT RETREAT!
+        // - Energetic running in place (85 <= spd < 140): Player is actively running! T-Rex begins steady retreat (-25 to -90 px/s)
+        // - Full sprint (spd >= 140): T-Rex is driven backwards rapidly (-90 to -170 px/s)
         const retreatX = safeBounds.left - 30;
         const snoutOffset = 135; // Snout tip reach relative to T-Rex anchor
 
         let dinoVelocity = 0;
-        if (spd < 15) {
-          dinoVelocity = 320;
-        } else if (spd < 32) {
-          const t = (spd - 15) / 17;
-          dinoVelocity = 180 * (1 - t) + 70;
-        } else if (spd < 46) {
-          dinoVelocity = -20;
+        if (spd < 25) {
+          dinoVelocity = 260;
+        } else if (spd < 50) {
+          const t = (spd - 25) / 25;
+          dinoVelocity = 260 * (1 - t) + 80 * t; // +260 down to +80
+        } else if (spd < 85) {
+          const t = (spd - 50) / 35;
+          dinoVelocity = 80 * (1 - t) + 10 * t; // +80 down to +10 (still closing in!)
+        } else if (spd < 140) {
+          const t = (spd - 85) / 55;
+          dinoVelocity = -25 - 65 * t; // -25 to -90 (pushing back!)
         } else {
-          const boost = Math.min(160, (spd - 46) * 6);
-          dinoVelocity = -200 - boost;
+          const boost = Math.min(80, (spd - 140) * 1.8);
+          dinoVelocity = -90 - boost; // -90 to -170 px/s
         }
 
         this.tRex.x += dinoVelocity * dt;
@@ -1710,12 +1731,17 @@ export class DisasterZoneGame {
     const lavaTop = ch - lavaHeight;
 
     ctx.save();
-    const grad = ctx.createLinearGradient(0, lavaTop, 0, ch);
-    grad.addColorStop(0, 'rgba(250, 204, 21, 0.90)');
-    grad.addColorStop(0.35, 'rgba(249, 115, 22, 0.94)');
-    grad.addColorStop(1, 'rgba(185, 28, 28, 0.96)');
+    const gradKey = `${Math.round(lavaTop)}_${ch}`;
+    if (this._lavaGradKey !== gradKey || !this._lavaGrad) {
+      this._lavaGradKey = gradKey;
+      const grad = ctx.createLinearGradient(0, lavaTop, 0, ch);
+      grad.addColorStop(0, 'rgba(250, 204, 21, 0.90)');
+      grad.addColorStop(0.35, 'rgba(249, 115, 22, 0.94)');
+      grad.addColorStop(1, 'rgba(185, 28, 28, 0.96)');
+      this._lavaGrad = grad;
+    }
 
-    ctx.fillStyle = grad;
+    ctx.fillStyle = this._lavaGrad;
     ctx.beginPath();
     ctx.moveTo(0, ch);
     for (let x = 0; x <= cw; x += 40) {
@@ -1771,10 +1797,15 @@ export class DisasterZoneGame {
     ctx.fill();
 
     // 3. Foreground Main Wave Layer (Vibrant tropical water across full screen width - zero heap allocations!)
-    const frontGrad = ctx.createLinearGradient(0, waterTop, 0, ch);
-    frontGrad.addColorStop(0, 'rgba(56, 189, 248, 0.84)');
-    frontGrad.addColorStop(0.35, 'rgba(14, 116, 144, 0.92)');
-    frontGrad.addColorStop(1, 'rgba(15, 23, 42, 0.96)');
+    const gradKey = `${Math.round(waterTop)}_${ch}`;
+    if (this._waterGradKey !== gradKey || !this._waterGrad) {
+      this._waterGradKey = gradKey;
+      const frontGrad = ctx.createLinearGradient(0, waterTop, 0, ch);
+      frontGrad.addColorStop(0, 'rgba(56, 189, 248, 0.84)');
+      frontGrad.addColorStop(0.35, 'rgba(14, 116, 144, 0.92)');
+      frontGrad.addColorStop(1, 'rgba(15, 23, 42, 0.96)');
+      this._waterGrad = frontGrad;
+    }
 
     ctx.beginPath();
     ctx.moveTo(-120, ch + 50);
@@ -1792,7 +1823,7 @@ export class DisasterZoneGame {
     ctx.lineTo(cw + 120, ch + 50);
     ctx.lineTo(-120, ch + 50);
     ctx.closePath();
-    ctx.fillStyle = frontGrad;
+    ctx.fillStyle = this._waterGrad;
     ctx.fill();
 
     // 4. Pure Surface Wave Stroke (Spanning beyond both left and right screen borders)
@@ -2053,9 +2084,9 @@ export class DisasterZoneGame {
       ctx.fillText('❄️', 38, ch - 38);
       ctx.fillText('❄️', cw - 38, ch - 38);
 
-      // Grace period prompt vs frozen solid status
+      // Grace period prompt (2.8s) vs frozen solid status
       const elapsed = (performance.now() - this.phaseStartTime) / 1000;
-      if (elapsed < 1.2) {
+      if (elapsed < 2.8) {
         const pulse = 1 + Math.sin(elapsed * 12) * 0.08;
         ctx.save();
         ctx.translate(cw / 2, 72);
@@ -3326,8 +3357,8 @@ export class DisasterZoneGame {
       ctx.font = '900 18px system-ui, sans-serif';
       ctx.fillText('🦖 T-REX IS CHARGING! RUN IN PLACE! 🏃‍♀️💨', cx, pillY + 22);
 
-    } else if (spd < 32) {
-      // Yellow alert: Dino is creeping closer
+    } else if (spd < 85) {
+      // Yellow alert: Dino is stalking / held at bay, but NOT retreating!
       ctx.fillStyle = 'rgba(217, 119, 6, 0.90)';
       ctx.strokeStyle = '#FDE68A';
       ctx.lineWidth = 3.0;
@@ -3340,10 +3371,10 @@ export class DisasterZoneGame {
       ctx.textBaseline = 'middle';
       ctx.fillStyle = '#FFFFFF';
       ctx.font = '900 17px system-ui, sans-serif';
-      ctx.fillText('⚡ DINO CREEPING CLOSER! RUN FASTER! 🦖', cx, pillY + 22);
+      ctx.fillText('⚡ DINO CREEPING CLOSER! RUN FASTER TO PUSH IT BACK! 🦖', cx, pillY + 22);
 
     } else {
-      // Green encouragement: Dino retreating!
+      // Green encouragement: Player running fast enough to push dino back!
       ctx.fillStyle = 'rgba(22, 101, 52, 0.88)';
       ctx.strokeStyle = '#4ADE80';
       ctx.lineWidth = 3.0;
@@ -3356,7 +3387,7 @@ export class DisasterZoneGame {
       ctx.textBaseline = 'middle';
       ctx.fillStyle = '#86EFAC';
       ctx.font = '900 17px system-ui, sans-serif';
-      ctx.fillText('💨 GREAT RUNNING! DINO IS RETREATING! 🦖💨', cx, pillY + 22);
+      ctx.fillText('💨 GREAT RUNNING! PUSHING DINO BACK! 🦖💨', cx, pillY + 22);
     }
     ctx.restore();
   }

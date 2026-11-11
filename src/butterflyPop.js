@@ -3,6 +3,7 @@
 // and avoid the High-Visibility Buzzing Bumblebee!
 import { sound } from './sound.js';
 import { settings } from './settings.js';
+import { ParticlePool, FloatingTextPool } from './particlePool.js';
 
 const BUTTERFLY_STYLES = [
   { topWing: '#38BDF8', bottomWing: '#BAE6FD', name: 'Bluey Butterfly', points: 1 },
@@ -11,13 +12,13 @@ const BUTTERFLY_STYLES = [
   { topWing: '#FACC15', bottomWing: '#FEF08A', name: 'Golden Butterfly', points: 2, isGold: true },
 ];
 
-const MAX_ACTIVE_TARGETS = 4;
+const MAX_ACTIVE_TARGETS = 5;
 
 export class ButterflyPopGame {
   constructor() {
     this.targets = [];
-    this.particles = [];
-    this.floatingTexts = [];
+    this.particlePool = new ParticlePool(48);
+    this.textPool = new FloatingTextPool(16);
 
     this.score = 0;
     this.bestScore = settings.data.bestButterflies || 0;
@@ -30,82 +31,109 @@ export class ButterflyPopGame {
     this.onBeeSting = null;
   }
 
-  reset() {
+  reset(safeBounds) {
     this.targets = [];
-    this.particles = [];
-    this.floatingTexts = [];
+    this.particlePool.clear();
+    this.textPool.clear();
     this.score = 0;
-    this.spawnTimer = 0.2;
+    this.spawnTimer = 1.0;
     this.beeTimer = 8.5;
     this.goldenBalloonTimer = 6.5;
     sound.updateBeeBuzz(false);
+
+    if (safeBounds) {
+      // Guaranteed immediate starting trio: 1 Butterfly, 1 Ladybug, 1 Bubble!
+      this.spawnButterfly(safeBounds, safeBounds.left + 150);
+      this.spawnLadybug(safeBounds, safeBounds.right - 150);
+      this.spawnSoapBubble(safeBounds, safeBounds.top + safeBounds.height * 0.60);
+    }
+  }
+
+  spawnButterfly(safeBounds, initialX = null) {
+    const style =
+      Math.random() < 0.2
+        ? BUTTERFLY_STYLES[3]
+        : BUTTERFLY_STYLES[Math.floor(Math.random() * 3)];
+    const fromLeft = initialX !== null ? Math.random() < 0.5 : Math.random() < 0.5;
+    const startX = initialX !== null
+      ? initialX
+      : (fromLeft ? safeBounds.left + 30 : safeBounds.right - 30);
+    const baseY =
+      safeBounds.top +
+      80 +
+      Math.random() * Math.max(120, safeBounds.height * 0.65);
+
+    this.targets.push({
+      kind: 'butterfly',
+      style,
+      x: startX,
+      y: baseY,
+      baseY,
+      vx: (fromLeft ? 1 : -1) * (105 + Math.random() * 65),
+      flapPhase: Math.random() * Math.PI * 2,
+      wavePhase: Math.random() * Math.PI * 2,
+      trailTimer: 0,
+      r: 46,
+    });
+  }
+
+  spawnLadybug(safeBounds, initialX = null) {
+    const fromLeft = initialX !== null ? Math.random() < 0.5 : Math.random() < 0.5;
+    const startX = initialX !== null
+      ? initialX
+      : (fromLeft ? safeBounds.left + 30 : safeBounds.right - 30);
+    const baseY =
+      safeBounds.top +
+      100 +
+      Math.random() * Math.max(100, safeBounds.height * 0.55);
+
+    this.targets.push({
+      kind: 'ladybug',
+      x: startX,
+      y: baseY,
+      baseY,
+      vx: (fromLeft ? 1 : -1) * (90 + Math.random() * 45),
+      flapPhase: 0,
+      wavePhase: Math.random() * Math.PI * 2,
+      r: 40,
+    });
+  }
+
+  spawnSoapBubble(safeBounds, initialY = null) {
+    const hue = Math.floor(Math.random() * 360);
+    const x =
+      safeBounds.left +
+      70 +
+      Math.random() * Math.max(80, safeBounds.width - 140);
+    const y = initialY !== null ? initialY : safeBounds.bottom - 30;
+    this.targets.push({
+      kind: 'bubble',
+      hue,
+      x,
+      y,
+      vx: (Math.random() - 0.5) * 40,
+      vy: -(85 + Math.random() * 55),
+      wobblePhase: Math.random() * Math.PI * 2,
+      r: 44 + Math.random() * 14,
+    });
   }
 
   spawnTarget(safeBounds) {
     if (this.targets.length >= MAX_ACTIVE_TARGETS) return;
+
+    // Check if a ladybug is active on screen
+    const hasLadybug = this.targets.some((t) => t.kind === 'ladybug');
     const roll = Math.random();
 
-    if (roll < 0.48) {
-      // Butterfly
-      const style =
-        Math.random() < 0.2
-          ? BUTTERFLY_STYLES[3]
-          : BUTTERFLY_STYLES[Math.floor(Math.random() * 3)];
-      const fromLeft = Math.random() < 0.5;
-      const startX = fromLeft ? safeBounds.left + 30 : safeBounds.right - 30;
-      const baseY =
-        safeBounds.top +
-        80 +
-        Math.random() * Math.max(120, safeBounds.height * 0.65);
-
-      this.targets.push({
-        kind: 'butterfly',
-        style,
-        x: startX,
-        y: baseY,
-        baseY,
-        vx: (fromLeft ? 1 : -1) * (105 + Math.random() * 65),
-        flapPhase: Math.random() * Math.PI * 2,
-        wavePhase: Math.random() * Math.PI * 2,
-        trailTimer: 0,
-        r: 46,
-      });
-    } else if (roll < 0.62) {
-      // Cute Cartoon Ladybug
-      const fromLeft = Math.random() < 0.5;
-      const startX = fromLeft ? safeBounds.left + 30 : safeBounds.right - 30;
-      const baseY =
-        safeBounds.top +
-        100 +
-        Math.random() * Math.max(100, safeBounds.height * 0.55);
-
-      this.targets.push({
-        kind: 'ladybug',
-        x: startX,
-        y: baseY,
-        baseY,
-        vx: (fromLeft ? 1 : -1) * (90 + Math.random() * 45),
-        flapPhase: 0,
-        wavePhase: Math.random() * Math.PI * 2,
-        r: 40,
-      });
+    // If no ladybug is currently on screen, 50% chance to spawn one so the player regularly sees them!
+    if (!hasLadybug && roll < 0.50) {
+      this.spawnLadybug(safeBounds);
+    } else if (roll < 0.35) {
+      this.spawnButterfly(safeBounds);
+    } else if (roll < 0.70) {
+      this.spawnLadybug(safeBounds);
     } else {
-      // Soap Bubble
-      const hue = Math.floor(Math.random() * 360);
-      const x =
-        safeBounds.left +
-        70 +
-        Math.random() * Math.max(80, safeBounds.width - 140);
-      this.targets.push({
-        kind: 'bubble',
-        hue,
-        x,
-        y: safeBounds.bottom - 30,
-        vx: (Math.random() - 0.5) * 40,
-        vy: -(85 + Math.random() * 55),
-        wobblePhase: Math.random() * Math.PI * 2,
-        r: 44 + Math.random() * 14,
-      });
+      this.spawnSoapBubble(safeBounds);
     }
   }
 
@@ -218,22 +246,21 @@ export class ButterflyPopGame {
           t.vx = -Math.abs(t.vx);
         }
 
-        // Shimmering fairy dust trail behind the butterfly
+        // Shimmering fairy dust trail behind the butterfly (zero-allocation pool!)
         t.trailTimer = (t.trailTimer || 0) + dt;
-        if (t.trailTimer >= 0.14 && this.particles.length < 12) {
+        if (t.trailTimer >= 0.14) {
           t.trailTimer = 0;
           const facing = t.vx >= 0 ? 1 : -1;
-          this.particles.push({
-            kind: 'fairydust',
-            x: t.x - facing * 18 + (Math.random() - 0.5) * 8,
-            y: t.y + (Math.random() - 0.5) * 10,
-            vx: -facing * 20 + (Math.random() - 0.5) * 12,
-            vy: -8 + Math.random() * 20,
-            r: 3 + Math.random() * 2,
-            color: t.style.topWing,
-            life: 0.55,
-            maxLife: 0.55,
-          });
+          this.particlePool.spawn(
+            t.x - facing * 18 + (Math.random() - 0.5) * 8,
+            t.y + (Math.random() - 0.5) * 10,
+            -facing * 20 + (Math.random() - 0.5) * 12,
+            -8 + Math.random() * 20,
+            3 + Math.random() * 2,
+            t.style.topWing,
+            0.55,
+            'fairydust'
+          );
         }
       } else if (t.kind === 'ladybug') {
         t.flapPhase = (t.flapPhase || 0) + dt * 22;
@@ -377,12 +404,13 @@ export class ButterflyPopGame {
           continue;
         }
 
-        // Case B: 3-Hit Bouncy Golden Balloon (+5 Bonus Points on 3rd hit!)
+        // Case B: 3-Hit Bouncy Golden Balloon / Golden Ghost (+5 Bonus Points on 3rd hit!)
         if (t.kind === 'goldenBalloon') {
           if (t.hitCooldown > 0) continue;
           t.hitCooldown = 0.35;
           t.hitsLeft--;
           t.squash = 1.0;
+          const isHw = Boolean(settings.data.halloweenTheme);
 
           if (t.hitsLeft > 0) {
             const dx = t.x - hitCol.x;
@@ -393,7 +421,9 @@ export class ButterflyPopGame {
             this.spawnFloatingText(
               t.x,
               t.y - 45,
-              `GOLDEN BOUNCE! ✨ (${t.hitsLeft} MORE!)`,
+              isHw
+                ? `GHOST BOUNCE! 👻 (${t.hitsLeft} MORE!)`
+                : `GOLDEN BOUNCE! ✨ (${t.hitsLeft} MORE!)`,
               '#FEF08A'
             );
           } else {
@@ -406,7 +436,14 @@ export class ButterflyPopGame {
             }
             sound.playFanfare();
             this.spawnPopParticles(t.x, t.y, '#FACC15');
-            this.spawnFloatingText(t.x, t.y - 45, 'GOLDEN BALLOON POP! 🎈✨ +5 POINTS!', '#FACC15');
+            this.spawnFloatingText(
+              t.x,
+              t.y - 45,
+              isHw
+                ? 'SUPER GHOST POP! 👻✨ +5 POINTS!'
+                : 'GOLDEN BALLOON POP! 🎈✨ +5 POINTS!',
+              '#FACC15'
+            );
             this.targets.splice(i, 1);
 
             const everyN = settings.data.soundboardEveryN || 10;
@@ -418,9 +455,10 @@ export class ButterflyPopGame {
           continue;
         }
 
-        // Case C: Butterfly, Soap Bubble, or Ladybug
+        // Case C: Butterfly/Bat, Soap Bubble/Ghost, or Ladybug/Spider
         const isButterfly = t.kind === 'butterfly';
         const isLadybug = t.kind === 'ladybug';
+        const isHw = Boolean(settings.data.halloweenTheme);
         const prevScore = this.score;
         const pts = isButterfly ? t.style.points || 1 : 1;
         this.score += pts;
@@ -433,18 +471,30 @@ export class ButterflyPopGame {
 
         sound.playBubblePop(isButterfly || isLadybug);
         const pColor = isLadybug
-          ? '#EF4444'
+          ? isHw
+            ? '#A855F7'
+            : '#EF4444'
           : isButterfly
-          ? t.style.topWing
+          ? isHw && !t.style.isGold
+            ? '#FB923C'
+            : t.style.topWing
           : `hsl(${t.hue}, 90%, 65%)`;
         this.spawnPopParticles(t.x, t.y, pColor);
 
         const label = isLadybug
-          ? 'LADYBUG CATCH! 🐞 +1'
+          ? isHw
+            ? 'SPIDER CATCH! 🕷️ +1'
+            : 'LADYBUG CATCH! 🐞 +1'
           : isButterfly
           ? t.style.isGold
-            ? 'GOLDEN BUTTERFLY! 🌟 +2'
+            ? isHw
+              ? 'GOLDEN BAT! 🌟 +2'
+              : 'GOLDEN BUTTERFLY! 🌟 +2'
+            : isHw
+            ? 'CAUGHT BAT! 🦇 +1'
             : 'CAUGHT BUTTERFLY! 🦋 +1'
+          : isHw
+          ? 'BOO! CUTE GHOST! 👻 +1'
           : 'POP! 🫧 +1';
         this.spawnFloatingText(
           t.x,
@@ -466,45 +516,32 @@ export class ButterflyPopGame {
     // Play continuous buzzing sound while a Bee is on screen!
     sound.updateBeeBuzz(hasActiveBee);
 
-    // Update particles & floating texts
-    for (let i = this.particles.length - 1; i >= 0; i--) {
-      const p = this.particles[i];
-      p.x += p.vx * dt;
-      p.y += p.vy * dt;
-      p.vy += 220 * dt;
-      p.life -= dt;
-      if (p.life <= 0) this.particles.splice(i, 1);
-    }
-
-    for (let i = this.floatingTexts.length - 1; i >= 0; i--) {
-      const ft = this.floatingTexts[i];
-      ft.y -= 50 * dt;
-      ft.life -= dt;
-      if (ft.life <= 0) this.floatingTexts.splice(i, 1);
-    }
+    // Update zero-allocation pools
+    this.particlePool.update(dt);
+    this.textPool.update(dt);
   }
 
   spawnPopParticles(x, y, color) {
     const colors = [color, '#FEF08A', '#FFFFFF', '#7DD3FC', '#F472B6'];
-    for (let i = 0; i < 10; i++) {
-      if (this.particles.length >= 30) break;
-      const a = (Math.PI * 2 * i) / 10;
+    for (let i = 0; i < 8; i++) {
+      const a = (Math.PI * 2 * i) / 8;
       const spd = 90 + Math.random() * 140;
-      this.particles.push({
+      this.particlePool.spawn(
         x,
         y,
-        vx: Math.cos(a) * spd,
-        vy: Math.sin(a) * spd - 35,
-        r: 4 + Math.random() * 5,
-        color: colors[i % colors.length],
-        life: 0.45,
-        maxLife: 0.45,
-      });
+        Math.cos(a) * spd,
+        Math.sin(a) * spd - 35,
+        4 + Math.random() * 5,
+        colors[i % colors.length],
+        0.45,
+        'circle',
+        220
+      );
     }
   }
 
   spawnFloatingText(x, y, text, color = '#FFFFFF') {
-    this.floatingTexts.push({ x, y, text, color, life: 0.95, maxLife: 0.95 });
+    this.textPool.spawn(x, y, text, color, 0.95, -50);
   }
 
   render(ctx) {
@@ -522,14 +559,24 @@ export class ButterflyPopGame {
       }
     }
 
-    if (this.particles.length > 0) {
+    const pool = this.particlePool.pool;
+    let hasParticles = false;
+    for (let i = 0; i < this.particlePool.maxSize; i++) {
+      if (pool[i].active) {
+        hasParticles = true;
+        break;
+      }
+    }
+
+    if (hasParticles) {
       ctx.save();
       // 1. Batch all fairy dust crosses in a single stroke
       ctx.strokeStyle = '#FEF08A';
       ctx.lineWidth = 2;
       ctx.beginPath();
-      for (const p of this.particles) {
-        if (p.kind === 'fairydust') {
+      for (let i = 0; i < this.particlePool.maxSize; i++) {
+        const p = pool[i];
+        if (p.active && p.kind === 'fairydust') {
           ctx.moveTo(p.x - p.r * 1.5, p.y);
           ctx.lineTo(p.x + p.r * 1.5, p.y);
           ctx.moveTo(p.x, p.y - p.r * 1.5);
@@ -539,7 +586,9 @@ export class ButterflyPopGame {
       ctx.stroke();
 
       // 2. Batch particle centers
-      for (const p of this.particles) {
+      for (let i = 0; i < this.particlePool.maxSize; i++) {
+        const p = pool[i];
+        if (!p.active) continue;
         const alpha = Math.max(0, p.life / p.maxLife);
         ctx.globalAlpha = alpha;
         ctx.fillStyle = p.kind === 'fairydust' ? '#FFFFFF' : p.color;
@@ -550,13 +599,24 @@ export class ButterflyPopGame {
       ctx.restore();
     }
 
-    if (this.floatingTexts.length > 0) {
+    const textPool = this.textPool.pool;
+    let hasTexts = false;
+    for (let i = 0; i < this.textPool.maxSize; i++) {
+      if (textPool[i].active) {
+        hasTexts = true;
+        break;
+      }
+    }
+
+    if (hasTexts) {
       ctx.save();
       ctx.font = '900 24px system-ui, sans-serif';
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
       ctx.lineWidth = 6;
-      for (const ft of this.floatingTexts) {
+      for (let i = 0; i < this.textPool.maxSize; i++) {
+        const ft = textPool[i];
+        if (!ft.active) continue;
         ctx.globalAlpha = Math.max(0, ft.life / ft.maxLife);
         ctx.strokeStyle = '#0F172A';
         ctx.strokeText(ft.text, ft.x, ft.y);
@@ -576,6 +636,113 @@ export class ButterflyPopGame {
     ctx.rotate(b.angle || 0);
 
     const r = b.r;
+
+    if (settings.data.halloweenTheme) {
+      // 👻👑 3-Hit Bouncy Golden Royal Silly Ghost!
+      const wave = Math.sin(this.time * 7) * 5;
+
+      // 1. Waving Stubby Ghost Arms on Left & Right
+      ctx.fillStyle = '#FEF9C3';
+      ctx.strokeStyle = '#D97706';
+      ctx.lineWidth = 3.2;
+      ctx.beginPath();
+      ctx.ellipse(-r * 0.85, -r * 0.08 + wave * 0.4, r * 0.28, r * 0.17, -0.35, 0, Math.PI * 2);
+      ctx.ellipse(r * 0.85, -r * 0.08 - wave * 0.4, r * 0.28, r * 0.17, 0.35, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+
+      // 2. Wavy Scalloped Golden-White Ghost Sheet Body
+      ctx.fillStyle = '#FEF9C3';
+      ctx.strokeStyle = '#D97706';
+      ctx.lineWidth = 3.5;
+      ctx.beginPath();
+      ctx.arc(0, -r * 0.16, r * 0.82, Math.PI, 0, false);
+      ctx.lineTo(r * 0.84, r * 0.72);
+      // 3 rippling bottom sheet scallops
+      ctx.quadraticCurveTo(r * 0.56 + wave * 0.3, r * 0.48, r * 0.28, r * 0.78);
+      ctx.quadraticCurveTo(wave * 0.3, r * 0.98, -r * 0.28, r * 0.78);
+      ctx.quadraticCurveTo(-r * 0.56 + wave * 0.3, r * 0.48, -r * 0.84, r * 0.72);
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
+
+      // Inner warm golden glow highlight
+      ctx.fillStyle = 'rgba(250, 204, 21, 0.28)';
+      ctx.beginPath();
+      ctx.arc(0, -r * 0.14, r * 0.66, Math.PI, 0, false);
+      ctx.fill();
+
+      // 3. Cute Mini Golden Crown perched on Ghost's Head!
+      ctx.fillStyle = '#FACC15';
+      ctx.strokeStyle = '#78350F';
+      ctx.lineWidth = 2.5;
+      ctx.beginPath();
+      ctx.moveTo(-18, -r * 0.90);
+      ctx.lineTo(-20, -r * 1.18);
+      ctx.lineTo(-8, -r * 1.02);
+      ctx.lineTo(0, -r * 1.24);
+      ctx.lineTo(8, -r * 1.02);
+      ctx.lineTo(20, -r * 1.18);
+      ctx.lineTo(18, -r * 0.90);
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
+
+      // Ruby gem in crown center
+      ctx.fillStyle = '#EF4444';
+      ctx.beginPath();
+      ctx.arc(0, -r * 1.0, 3.5, 0, Math.PI * 2);
+      ctx.fill();
+
+      // 4. Silly Cute Ghost Face (Above the hits badge!)
+      const faceY = -r * 0.44;
+      // Rosy Pink Cheeks
+      ctx.fillStyle = 'rgba(244, 114, 182, 0.55)';
+      ctx.beginPath();
+      ctx.arc(-r * 0.38, faceY + 7, 6, 0, Math.PI * 2);
+      ctx.arc(r * 0.38, faceY + 7, 6, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Big Goofy Cartoon Ghost Eyes
+      [-r * 0.24, r * 0.24].forEach((ex) => {
+        ctx.fillStyle = '#0F172A';
+        ctx.beginPath();
+        ctx.ellipse(ex, faceY, 5.5, 7, 0, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = '#FFFFFF';
+        ctx.beginPath();
+        ctx.arc(ex - 1.5, faceY - 2, 2.2, 0, Math.PI * 2);
+        ctx.fill();
+      });
+
+      // Silly Happy Mouth with Pink Tongue sticking out!
+      ctx.fillStyle = '#0F172A';
+      ctx.beginPath();
+      ctx.arc(0, faceY + 7, 7.5, 0, Math.PI);
+      ctx.fill();
+      ctx.fillStyle = '#F472B6';
+      ctx.beginPath();
+      ctx.ellipse(0, faceY + 13, 4.5, 5.5, 0, 0, Math.PI * 2);
+      ctx.fill();
+
+      // 5. Hits Badge Pill on Ghost Tummy
+      ctx.fillStyle = 'rgba(15, 23, 42, 0.86)';
+      ctx.strokeStyle = '#FACC15';
+      ctx.lineWidth = 2.5;
+      ctx.beginPath();
+      ctx.roundRect(-38, 2, 76, 30, 15);
+      ctx.fill();
+      ctx.stroke();
+
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillStyle = '#FEF08A';
+      ctx.font = '900 15px system-ui, sans-serif';
+      ctx.fillText(`👻 ×${b.hitsLeft}`, 0, 17);
+
+      ctx.restore();
+      return;
+    }
 
     // 1. Festive Golden Curly Ribbon / String dangling below
     ctx.strokeStyle = '#FEF08A';
@@ -790,6 +957,108 @@ export class ButterflyPopGame {
     const sy = 1 - Math.sin(b.wobblePhase) * 0.05;
     ctx.scale(sx, sy);
 
+    if (settings.data.halloweenTheme) {
+      // 👻 Silly / Cute Floating Sheet Ghost!
+      const r = b.r * 0.92;
+      const tailWave = Math.sin(b.wobblePhase * 1.8) * 5;
+      const armWave = Math.cos(b.wobblePhase * 1.5) * 4;
+
+      // 1. Little Waving Stubby Ghost Arms
+      ctx.fillStyle = 'rgba(248, 250, 252, 0.92)';
+      ctx.strokeStyle = `hsla(${b.hue}, 88%, 68%, 0.95)`;
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.ellipse(-r * 0.82, -r * 0.05 + armWave, r * 0.26, r * 0.15, -0.35, 0, Math.PI * 2);
+      ctx.ellipse(r * 0.82, -r * 0.05 - armWave, r * 0.26, r * 0.15, 0.35, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+
+      // 2. Ghost Sheet Dome & Wavy Scalloped Tail
+      ctx.beginPath();
+      ctx.arc(0, -r * 0.18, r * 0.78, Math.PI, 0, false);
+      ctx.lineTo(r * 0.80, r * 0.68);
+      ctx.quadraticCurveTo(r * 0.52 + tailWave * 0.3, r * 0.44, r * 0.26, r * 0.74);
+      ctx.quadraticCurveTo(tailWave * 0.3, r * 0.94, -r * 0.26, r * 0.74);
+      ctx.quadraticCurveTo(-r * 0.52 + tailWave * 0.3, r * 0.44, -r * 0.80, r * 0.68);
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
+
+      // Soft pastel inner sheen
+      ctx.fillStyle = `hsla(${b.hue}, 92%, 76%, 0.20)`;
+      ctx.beginPath();
+      ctx.arc(0, -r * 0.16, r * 0.62, Math.PI, 0, false);
+      ctx.fill();
+
+      // 3. Cute Rosy Blush Cheeks
+      const faceY = -r * 0.18;
+      ctx.fillStyle = 'rgba(244, 114, 182, 0.55)';
+      ctx.beginPath();
+      ctx.arc(-r * 0.38, faceY + 8, 5.5, 0, Math.PI * 2);
+      ctx.arc(r * 0.38, faceY + 8, 5.5, 0, Math.PI * 2);
+      ctx.fill();
+
+      // 4. Silly Expressive Ghost Faces (3 playful variations based on hue!)
+      const faceType = b.hue % 3;
+      ctx.fillStyle = '#0F172A';
+      ctx.strokeStyle = '#0F172A';
+      ctx.lineWidth = 2.4;
+      ctx.lineCap = 'round';
+
+      if (faceType === 0) {
+        // Silly Tongue-Out Ghost!
+        [-r * 0.24, r * 0.24].forEach((ex) => {
+          ctx.beginPath();
+          ctx.ellipse(ex, faceY - 2, 4.8, 6.2, 0, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.fillStyle = '#FFFFFF';
+          ctx.beginPath();
+          ctx.arc(ex - 1.4, faceY - 4, 1.8, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.fillStyle = '#0F172A';
+        });
+        // Open smile + silly pink tongue sticking out
+        ctx.beginPath();
+        ctx.arc(0, faceY + 7, 7, 0, Math.PI);
+        ctx.fill();
+        ctx.fillStyle = '#F472B6';
+        ctx.beginPath();
+        ctx.ellipse(0, faceY + 13, 4.2, 5.2, 0, 0, Math.PI * 2);
+        ctx.fill();
+      } else if (faceType === 1) {
+        // Cute "BOO!" O-Mouth Ghost!
+        [-r * 0.24, r * 0.24].forEach((ex) => {
+          ctx.beginPath();
+          ctx.arc(ex, faceY - 2, 5.2, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.fillStyle = '#FFFFFF';
+          ctx.beginPath();
+          ctx.arc(ex - 1.5, faceY - 3.5, 2, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.fillStyle = '#0F172A';
+        });
+        ctx.beginPath();
+        ctx.ellipse(0, faceY + 10, 5.5, 7, 0, 0, Math.PI * 2);
+        ctx.fill();
+      } else {
+        // Happy Squinting "^ ^" Ghost!
+        [-1, 1].forEach((dir) => {
+          const ex = dir * r * 0.24;
+          ctx.beginPath();
+          ctx.moveTo(ex - 5, faceY);
+          ctx.lineTo(ex, faceY - 5);
+          ctx.lineTo(ex + 5, faceY);
+          ctx.stroke();
+        });
+        ctx.beginPath();
+        ctx.arc(0, faceY + 6, 6.5, 0.15 * Math.PI, 0.85 * Math.PI);
+        ctx.stroke();
+      }
+
+      ctx.restore();
+      return;
+    }
+
     // Translucent soap bubble body (0 gradient allocation overhead!)
     ctx.beginPath();
     ctx.arc(0, 0, b.r, 0, Math.PI * 2);
@@ -824,6 +1093,124 @@ export class ButterflyPopGame {
     const flapFore = 0.32 + Math.abs(Math.sin(bf.flapPhase)) * 0.68;
     const flapHind = 0.32 + Math.abs(Math.sin(bf.flapPhase + 0.35)) * 0.68;
     const r = bf.r * 0.85;
+
+    if (settings.data.halloweenTheme) {
+      // 🦇 Cute Cartoon Bat with Flapping Scalloped Bat Wings, Pointy Ears & Tiny Fangs!
+      const isGold = Boolean(bf.style && bf.style.isGold);
+      const wingMain = isGold ? '#FACC15' : '#4C1D95';
+      const wingInner = isGold ? '#FEF08A' : (bf.style?.topWing === '#FB923C' ? '#F97316' : '#A855F7');
+      const wingRim = isGold ? '#78350F' : '#1E1B4B';
+      const wingFlapY = Math.sin(bf.flapPhase) * 10;
+
+      // 1. Left & Right Scalloped Bat Wings
+      ctx.save();
+      ctx.scale(0.55 + flapFore * 0.45, 1);
+      ctx.fillStyle = wingMain;
+      ctx.strokeStyle = wingRim;
+      ctx.lineWidth = 3;
+      ctx.lineJoin = 'round';
+
+      [-1, 1].forEach((dir) => {
+        ctx.beginPath();
+        ctx.moveTo(0, -r * 0.12);
+        // Upper bat wing arch out to wingtip
+        ctx.quadraticCurveTo(dir * r * 0.55, -r * 0.82 + wingFlapY, dir * r * 1.32, -r * 0.28 + wingFlapY);
+        // 3 Bat-wing bottom scallops curving back to body
+        ctx.quadraticCurveTo(dir * r * 1.05, r * 0.08 + wingFlapY * 0.6, dir * r * 0.88, r * 0.42 + wingFlapY * 0.5);
+        ctx.quadraticCurveTo(dir * r * 0.62, r * 0.16, dir * r * 0.44, r * 0.46);
+        ctx.quadraticCurveTo(dir * r * 0.22, r * 0.20, 0, r * 0.28);
+        ctx.closePath();
+        ctx.fill();
+        ctx.stroke();
+
+        // Inner wing membrane accent
+        ctx.fillStyle = wingInner;
+        ctx.beginPath();
+        ctx.ellipse(dir * r * 0.62, -r * 0.10 + wingFlapY * 0.4, r * 0.34, r * 0.16, dir * -0.25, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = wingMain;
+      });
+      ctx.restore();
+
+      // 2. Pointy Bat Ears with Pink Inner Triangles
+      ctx.fillStyle = isGold ? '#B45309' : '#1E1B4B';
+      ctx.strokeStyle = '#0F172A';
+      ctx.lineWidth = 2.5;
+      [-1, 1].forEach((dir) => {
+        ctx.beginPath();
+        ctx.moveTo(dir * 4, -r * 0.38);
+        ctx.lineTo(dir * 16, -r * 0.92);
+        ctx.lineTo(dir * 15, -r * 0.28);
+        ctx.closePath();
+        ctx.fill();
+        ctx.stroke();
+
+        ctx.fillStyle = '#F472B6';
+        ctx.beginPath();
+        ctx.moveTo(dir * 6, -r * 0.40);
+        ctx.lineTo(dir * 13, -r * 0.76);
+        ctx.lineTo(dir * 12, -r * 0.34);
+        ctx.closePath();
+        ctx.fill();
+        ctx.fillStyle = isGold ? '#B45309' : '#1E1B4B';
+      });
+
+      // 3. Plump Fuzzy Bat Body & Round Head
+      ctx.fillStyle = isGold ? '#F59E0B' : '#1E1B4B';
+      ctx.strokeStyle = '#0F172A';
+      ctx.lineWidth = 2.8;
+      ctx.beginPath();
+      ctx.ellipse(0, r * 0.08, r * 0.38, r * 0.44, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+
+      // Cute Lighter Chest Tuft
+      ctx.fillStyle = isGold ? '#FEF08A' : '#7C3AED';
+      ctx.beginPath();
+      ctx.ellipse(0, r * 0.18, r * 0.22, r * 0.24, 0, 0, Math.PI * 2);
+      ctx.fill();
+
+      // 4. Big Cheerful Bat Eyes & Cute White Fangs!
+      [-6.5, 6.5].forEach((ex) => {
+        ctx.fillStyle = '#FEF08A';
+        ctx.strokeStyle = '#0F172A';
+        ctx.lineWidth = 1.8;
+        ctx.beginPath();
+        ctx.arc(ex, -r * 0.08, 5, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.stroke();
+
+        ctx.fillStyle = '#0F172A';
+        ctx.beginPath();
+        ctx.arc(ex + 1, -r * 0.08, 2.6, 0, Math.PI * 2);
+        ctx.fill();
+
+        ctx.fillStyle = '#FFFFFF';
+        ctx.beginPath();
+        ctx.arc(ex - 0.5, -r * 0.12, 1.2, 0, Math.PI * 2);
+        ctx.fill();
+      });
+
+      // Happy smile & two tiny white vampire fangs
+      ctx.strokeStyle = '#FFFFFF';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.arc(0, r * 0.02, 5.5, 0.15 * Math.PI, 0.85 * Math.PI);
+      ctx.stroke();
+
+      ctx.fillStyle = '#FFFFFF';
+      [-4, 4].forEach((fx) => {
+        ctx.beginPath();
+        ctx.moveTo(fx - 2, r * 0.06);
+        ctx.lineTo(fx, r * 0.18);
+        ctx.lineTo(fx + 2, r * 0.06);
+        ctx.closePath();
+        ctx.fill();
+      });
+
+      ctx.restore();
+      return;
+    }
 
     // 1. Forewings (Left & Right batched)
     ctx.save();
@@ -939,10 +1326,108 @@ export class ButterflyPopGame {
     const facing = lb.vx >= 0 ? 1 : -1;
     ctx.scale(facing, 1);
 
-    const r = lb.r * 0.85;
+    const r = lb.r * 0.88;
     const flap = Math.sin(lb.flapPhase || 0);
 
-    // 1. Cute Tiny Black Cartoon Legs in ONE stroke
+    if (settings.data.halloweenTheme) {
+      // 🕷️ Friendly Cute Cartoon Spider with 8 Bouncy Legs & Pumpkin Spot!
+      // 1. Trailing Silvery Web Silk Thread behind spider
+      ctx.strokeStyle = 'rgba(226, 232, 240, 0.70)';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(-r * 0.9, 0);
+      ctx.lineTo(-r * 1.55, Math.sin(lb.wavePhase || 0) * 6);
+      ctx.stroke();
+
+      // 2. Eight Bouncy Jointed Cartoon Spider Legs (4 top, 4 bottom)
+      ctx.strokeStyle = '#0F172A';
+      ctx.lineWidth = 3.5;
+      ctx.lineCap = 'round';
+      ctx.lineJoin = 'round';
+      ctx.beginPath();
+      [-0.48, -0.16, 0.16, 0.48].forEach((offset, idx) => {
+        const lx = offset * r;
+        const wiggle = Math.sin((lb.flapPhase || 0) * 0.8 + idx * 1.4) * 4;
+        // Upper leg with knee joint
+        ctx.moveTo(lx, -r * 0.45);
+        ctx.lineTo(lx - 5, -r * 0.92 + wiggle * 0.5);
+        ctx.lineTo(lx + (idx - 1.5) * 5, -r * 1.18 + wiggle);
+        // Lower leg with knee joint
+        ctx.moveTo(lx, r * 0.45);
+        ctx.lineTo(lx - 5, r * 0.92 - wiggle * 0.5);
+        ctx.lineTo(lx + (idx - 1.5) * 5, r * 1.18 - wiggle);
+      });
+      ctx.stroke();
+
+      // 3. Plump Fuzzy Dark-Purple/Black Spider Abdomen & Head
+      ctx.fillStyle = '#1E1B4B';
+      ctx.strokeStyle = '#A855F7';
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.ellipse(-r * 0.12, 0, r * 0.82, r * 0.74, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+
+      // Cute Orange Pumpkin / Hourglass Emblem on Spider Back
+      ctx.fillStyle = '#F97316';
+      ctx.beginPath();
+      ctx.arc(-r * 0.32, 0, r * 0.34, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = '#FEF08A';
+      ctx.beginPath();
+      ctx.arc(-r * 0.32, -4, 3, 0, Math.PI * 2);
+      ctx.arc(-r * 0.32, 4, 3, 0, Math.PI * 2);
+      ctx.fill();
+
+      // 4. Spider Head & Rosy Pink Blush Cheeks
+      ctx.fillStyle = '#0F172A';
+      ctx.strokeStyle = '#A855F7';
+      ctx.lineWidth = 2.5;
+      ctx.beginPath();
+      ctx.arc(r * 0.52, 0, r * 0.46, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+
+      ctx.fillStyle = 'rgba(244, 114, 182, 0.55)';
+      ctx.beginPath();
+      ctx.arc(r * 0.48, -r * 0.30, 4.5, 0, Math.PI * 2);
+      ctx.arc(r * 0.48, r * 0.30, 4.5, 0, Math.PI * 2);
+      ctx.fill();
+
+      // 5. Big Friendly Googly Spider Eyes (+ 2 tiny cute bonus spider eyes!)
+      [-r * 0.17, r * 0.17].forEach((ey) => {
+        ctx.fillStyle = '#FFFFFF';
+        ctx.strokeStyle = '#0F172A';
+        ctx.lineWidth = 1.8;
+        ctx.beginPath();
+        ctx.arc(r * 0.64, ey, 6, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.stroke();
+
+        ctx.fillStyle = '#0F172A';
+        ctx.beginPath();
+        ctx.arc(r * 0.68, ey, 3.2, 0, Math.PI * 2);
+        ctx.fill();
+
+        ctx.fillStyle = '#FFFFFF';
+        ctx.beginPath();
+        ctx.arc(r * 0.70, ey - 1.5, 1.4, 0, Math.PI * 2);
+        ctx.fill();
+      });
+
+      // Two tiny secondary spider eyes on forehead
+      [-r * 0.32, r * 0.32].forEach((ey) => {
+        ctx.fillStyle = '#FEF08A';
+        ctx.beginPath();
+        ctx.arc(r * 0.44, ey, 2.6, 0, Math.PI * 2);
+        ctx.fill();
+      });
+
+      ctx.restore();
+      return;
+    }
+
+    // 1. Cute Tiny Black Cartoon Legs (3 pairs)
     ctx.strokeStyle = '#0F172A';
     ctx.lineWidth = 3;
     ctx.lineCap = 'round';
@@ -950,123 +1435,158 @@ export class ButterflyPopGame {
     [-r * 0.35, 0, r * 0.35].forEach((lx, i) => {
       const legWiggle = Math.sin((lb.flapPhase || 0) + i * 1.5) * 2.5;
       ctx.moveTo(lx, -r * 0.55);
-      ctx.lineTo(lx - 5, -r * 0.95 + legWiggle);
+      ctx.lineTo(lx - 4, -r * 0.88 + legWiggle);
       ctx.moveTo(lx, r * 0.55);
-      ctx.lineTo(lx - 5, r * 0.95 - legWiggle);
+      ctx.lineTo(lx - 4, r * 0.88 - legWiggle);
     });
     ctx.stroke();
 
-    // 2. Flapping Translucent Wings in ONE fill & stroke
-    ctx.fillStyle = 'rgba(255, 255, 255, 0.55)';
-    ctx.strokeStyle = 'rgba(255, 255, 255, 0.9)';
+    // 2. Flapping Translucent Wings (Hovering on top of body)
+    ctx.fillStyle = 'rgba(224, 242, 254, 0.65)';
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.95)';
     ctx.lineWidth = 2;
     ctx.beginPath();
     ctx.ellipse(
-      -r * 0.15,
-      -r * 0.72 + flap * 5,
-      r * 0.55,
-      r * 0.28,
-      -0.3 + flap * 0.12,
+      -r * 0.18,
+      -r * 0.65 + flap * 6,
+      r * 0.58,
+      r * 0.26,
+      -0.28 + flap * 0.12,
       0,
       Math.PI * 2
     );
     ctx.ellipse(
-      -r * 0.15,
-      r * 0.72 - flap * 5,
-      r * 0.55,
-      r * 0.28,
-      0.3 - flap * 0.12,
+      -r * 0.18,
+      r * 0.65 - flap * 6,
+      r * 0.58,
+      r * 0.26,
+      0.28 - flap * 0.12,
       0,
       Math.PI * 2
     );
     ctx.fill();
     ctx.stroke();
 
-    // 3. Round Red Shell / Elytra
-    const wingSpread = 1.5;
+    // 3. Round Shiny Red Shell (Unified circle body - no weird gap or cut!)
     ctx.fillStyle = '#EF4444';
     ctx.strokeStyle = '#0F172A';
     ctx.lineWidth = 3.5;
     ctx.beginPath();
-    ctx.arc(0, -wingSpread, r, Math.PI, Math.PI * 2);
-    ctx.closePath();
-    ctx.arc(0, wingSpread, r, 0, Math.PI);
-    ctx.closePath();
+    ctx.arc(0, 0, r, 0, Math.PI * 2);
     ctx.fill();
     ctx.stroke();
 
-    // Horizontal Wing Seam Spine
+    // Clean horizontal wing split seam down the center back
+    ctx.strokeStyle = '#0F172A';
+    ctx.lineWidth = 3;
     ctx.beginPath();
     ctx.moveTo(-r, 0);
-    ctx.lineTo(r * 0.48, 0);
+    ctx.lineTo(r * 0.42, 0);
+    // V-notch at back of wings
+    ctx.moveTo(-r, -5);
+    ctx.lineTo(-r + 7, 0);
+    ctx.lineTo(-r, 5);
     ctx.stroke();
 
-    // Cute Black Polka Dots (all 7 in ONE single path & fill!)
+    // 4. Six Cute Black Polka Dots (3 top wing, 3 bottom wing - perfectly balanced)
     ctx.fillStyle = '#0F172A';
     ctx.beginPath();
-    ctx.arc(-r * 0.48, -r * 0.45, 5, 0, Math.PI * 2);
-    ctx.arc(-r * 0.08, -r * 0.58, 5, 0, Math.PI * 2);
-    ctx.arc(r * 0.22, -r * 0.35, 4.5, 0, Math.PI * 2);
-    ctx.arc(-r * 0.48, r * 0.45, 5, 0, Math.PI * 2);
-    ctx.arc(-r * 0.08, r * 0.58, 5, 0, Math.PI * 2);
-    ctx.arc(r * 0.22, r * 0.35, 4.5, 0, Math.PI * 2);
-    ctx.arc(-r * 0.72, 0, 4.5, 0, Math.PI * 2);
+    // Top wing dots
+    ctx.arc(-r * 0.45, -r * 0.46, 5, 0, Math.PI * 2);
+    ctx.arc(-r * 0.05, -r * 0.56, 5.2, 0, Math.PI * 2);
+    ctx.arc(r * 0.20, -r * 0.32, 4.5, 0, Math.PI * 2);
+    // Bottom wing dots
+    ctx.arc(-r * 0.45, r * 0.46, 5, 0, Math.PI * 2);
+    ctx.arc(-r * 0.05, r * 0.56, 5.2, 0, Math.PI * 2);
+    ctx.arc(r * 0.20, r * 0.32, 4.5, 0, Math.PI * 2);
     ctx.fill();
 
-    // Specular highlight
-    ctx.strokeStyle = 'rgba(255, 255, 255, 0.65)';
-    ctx.lineWidth = 3;
+    // 5. Specular Glossy Highlight (Crescent shine along upper shell)
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.75)';
+    ctx.lineWidth = 3.2;
     ctx.lineCap = 'round';
     ctx.beginPath();
-    ctx.ellipse(-r * 0.28, -r * 0.45, r * 0.35, r * 0.16, -0.3, 0.8 * Math.PI, 1.4 * Math.PI);
+    ctx.arc(0, 0, r * 0.78, 1.15 * Math.PI, 1.48 * Math.PI);
     ctx.stroke();
 
-    // 4. Black Pronotum + Head (batched)
+    // 6. Black Collar (Pronotum)
     ctx.fillStyle = '#0F172A';
+    ctx.strokeStyle = '#0F172A';
+    ctx.lineWidth = 3;
     ctx.beginPath();
-    ctx.ellipse(r * 0.48, 0, r * 0.24, r * 0.52, 0, -Math.PI * 0.5, Math.PI * 0.5);
-    ctx.arc(r * 0.72, 0, r * 0.32, 0, Math.PI * 2);
+    ctx.ellipse(r * 0.40, 0, r * 0.24, r * 0.52, 0, -Math.PI * 0.5, Math.PI * 0.5);
+    ctx.closePath();
     ctx.fill();
     ctx.stroke();
 
     // White accent spots on collar
     ctx.fillStyle = '#FFFFFF';
     ctx.beginPath();
-    ctx.ellipse(r * 0.44, -r * 0.26, 4, 3, 0, 0, Math.PI * 2);
-    ctx.ellipse(r * 0.44, r * 0.26, 4, 3, 0, 0, Math.PI * 2);
+    ctx.ellipse(r * 0.42, -r * 0.28, 4.5, 3.2, -0.2, 0, Math.PI * 2);
+    ctx.ellipse(r * 0.42, r * 0.28, 4.5, 3.2, 0.2, 0, Math.PI * 2);
     ctx.fill();
 
-    // 5. Cartoon Eyes
+    // 7. Head (Glossy Black Dome protruding from collar)
+    ctx.fillStyle = '#0F172A';
+    ctx.strokeStyle = '#0F172A';
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.arc(r * 0.62, 0, r * 0.36, -Math.PI * 0.48, Math.PI * 0.48);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+
+    // Cute Rosy Blush Cheeks
+    ctx.fillStyle = 'rgba(251, 113, 133, 0.45)';
+    ctx.beginPath();
+    ctx.arc(r * 0.58, -r * 0.28, 4, 0, Math.PI * 2);
+    ctx.arc(r * 0.58, r * 0.28, 4, 0, Math.PI * 2);
+    ctx.fill();
+
+    // 8. Big Friendly Cartoon Eyes
+    // White Sclera
+    ctx.fillStyle = '#FFFFFF';
+    ctx.strokeStyle = '#0F172A';
+    ctx.lineWidth = 1.8;
+    ctx.beginPath();
+    ctx.arc(r * 0.72, -r * 0.18, 5.5, 0, Math.PI * 2);
+    ctx.arc(r * 0.72, r * 0.18, 5.5, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+
+    // Deep Black Pupils (looking forward in flight direction)
+    ctx.fillStyle = '#0F172A';
+    ctx.beginPath();
+    ctx.arc(r * 0.76, -r * 0.18, 3.2, 0, Math.PI * 2);
+    ctx.arc(r * 0.76, r * 0.18, 3.2, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Cute Specular Catchlights (twinkle glint in eyes)
     ctx.fillStyle = '#FFFFFF';
     ctx.beginPath();
-    ctx.arc(r * 0.76, -r * 0.18, 5, 0, Math.PI * 2);
-    ctx.arc(r * 0.76, r * 0.18, 5, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.strokeStyle = '#0F172A';
-    ctx.lineWidth = 1.5;
-    ctx.stroke();
-
-    // Pupils
-    ctx.fillStyle = '#0F172A';
-    ctx.beginPath();
-    ctx.arc(r * 0.8, -r * 0.18, 2.8, 0, Math.PI * 2);
-    ctx.arc(r * 0.8, r * 0.18, 2.8, 0, Math.PI * 2);
+    ctx.arc(r * 0.78, -r * 0.21, 1.3, 0, Math.PI * 2);
+    ctx.arc(r * 0.78, r * 0.15, 1.3, 0, Math.PI * 2);
     ctx.fill();
 
-    // 6. Antennae
+    // 9. Bouncy Antennae with Knob Tips
+    const antWiggle = Math.sin((lb.flapPhase || 0) * 0.5) * 1.5;
     ctx.strokeStyle = '#0F172A';
     ctx.lineWidth = 2.5;
+    ctx.lineCap = 'round';
     ctx.beginPath();
-    ctx.moveTo(r * 0.88, -4);
-    ctx.quadraticCurveTo(r * 1.15, -14, r * 1.28, -8);
-    ctx.moveTo(r * 0.88, 4);
-    ctx.quadraticCurveTo(r * 1.15, 14, r * 1.28, 8);
+    // Top antenna
+    ctx.moveTo(r * 0.88, -r * 0.10);
+    ctx.quadraticCurveTo(r * 1.16, -r * 0.42 + antWiggle, r * 1.28, -r * 0.35 + antWiggle);
+    // Bottom antenna
+    ctx.moveTo(r * 0.88, r * 0.10);
+    ctx.quadraticCurveTo(r * 1.16, r * 0.42 - antWiggle, r * 1.28, r * 0.35 - antWiggle);
     ctx.stroke();
 
+    // Antenna knobs
     ctx.fillStyle = '#0F172A';
     ctx.beginPath();
-    ctx.arc(r * 1.28, -8, 3, 0, Math.PI * 2);
-    ctx.arc(r * 1.28, 8, 3, 0, Math.PI * 2);
+    ctx.arc(r * 1.28, -r * 0.35 + antWiggle, 3.2, 0, Math.PI * 2);
+    ctx.arc(r * 1.28, r * 0.35 - antWiggle, 3.2, 0, Math.PI * 2);
     ctx.fill();
 
     ctx.restore();

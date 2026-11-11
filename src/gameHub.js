@@ -1,5 +1,6 @@
 // Hands-Free Left/Right Wing 6-Game Start Screen & Single-Hand Selection for EmiliaGO
 import { sound } from './sound.js';
+import { settings } from './settings.js';
 
 export class GameHub {
   constructor() {
@@ -63,38 +64,40 @@ export class GameHub {
     // 4. Butterfly Pop at Top-Right
     // 5. Dance Party at Mid-Right
     // 6. Floor is Lava at Bottom-Right
+    const isHalloween = Boolean(settings.data.halloweenTheme);
+
     const gameDefs = [
       {
         id: 'keepy',
-        title: 'KEEPY UPPY',
-        subtitle: 'Bounce Balloon!',
+        title: isHalloween ? 'PUMPKIN POP' : 'KEEPY UPPY',
+        subtitle: isHalloween ? "Bounce Jack-O'-Lanterns!" : 'Bounce Balloon!',
         voiceHover: 'hover_keepy',
         side: 'left',
         row: 'top',
         x: leftX,
         y: rowTopY,
         r: baseR,
-        primary: '#EF4444',
-        secondary: '#FCA5A5',
+        primary: isHalloween ? '#F97316' : '#EF4444',
+        secondary: isHalloween ? '#FDBA74' : '#FCA5A5',
         rim: '#FEF08A',
-        glowColor: 'rgba(239, 68, 68,',
-        badge: '🎈',
+        glowColor: isHalloween ? 'rgba(249, 115, 22,' : 'rgba(239, 68, 68,',
+        badge: isHalloween ? '🎃' : '🎈',
       },
       {
         id: 'hats',
-        title: 'HAT STACKER',
-        subtitle: 'Catch Silly Hats!',
+        title: isHalloween ? 'MASK STACKER' : 'HAT STACKER',
+        subtitle: isHalloween ? 'Catch Spooky Masks!' : 'Catch Silly Hats!',
         voiceHover: 'hover_hats',
         side: 'left',
         row: 'mid',
         x: leftX,
         y: rowMidY,
         r: baseR,
-        primary: '#F59E0B',
-        secondary: '#FDE68A',
-        rim: '#FFFFFF',
-        glowColor: 'rgba(245, 158, 11,',
-        badge: '👑',
+        primary: isHalloween ? '#22C55E' : '#F59E0B',
+        secondary: isHalloween ? '#86EFAC' : '#FDE68A',
+        rim: isHalloween ? '#FEF08A' : '#FFFFFF',
+        glowColor: isHalloween ? 'rgba(34, 197, 94,' : 'rgba(245, 158, 11,',
+        badge: isHalloween ? '🎭' : '👑',
       },
       {
         id: 'poses',
@@ -114,19 +117,19 @@ export class GameHub {
       },
       {
         id: 'butterflies',
-        title: 'BUTTERFLY POP',
-        subtitle: 'Pop & Catch!',
+        title: isHalloween ? 'BAT & GHOST POP' : 'BUTTERFLY POP',
+        subtitle: isHalloween ? 'Catch Bats & Ghosts!' : 'Pop & Catch!',
         voiceHover: 'hover_butterflies',
         side: 'right',
         row: 'top',
         x: rightX,
         y: rowTopY,
         r: baseR,
-        primary: '#EC4899',
-        secondary: '#FBCFE8',
-        rim: '#7DD3FC',
-        glowColor: 'rgba(236, 72, 153,',
-        badge: '🦋',
+        primary: isHalloween ? '#7C3AED' : '#EC4899',
+        secondary: isHalloween ? '#DDD6FE' : '#FBCFE8',
+        rim: isHalloween ? '#FACC15' : '#7DD3FC',
+        glowColor: isHalloween ? 'rgba(124, 58, 237,' : 'rgba(236, 72, 153,',
+        badge: isHalloween ? '🦇' : '🦋',
       },
       {
         id: 'dance',
@@ -351,24 +354,7 @@ export class GameHub {
       }
     }
 
-    // 3. Render Wing Guide Backdrops (subtle, clean, toddler-friendly)
-    ctx.save();
-    const wingWidth = w * 0.23;
-
-    // Left Wing soft column backdrop
-    const leftGrad = ctx.createLinearGradient(safeBounds.left, cy, safeBounds.left + wingWidth, cy);
-    leftGrad.addColorStop(0, 'rgba(15, 23, 42, 0.40)');
-    leftGrad.addColorStop(1, 'rgba(15, 23, 42, 0.0)');
-    ctx.fillStyle = leftGrad;
-    ctx.fillRect(safeBounds.left, safeBounds.top + 60, wingWidth, h - 120);
-
-    // Right Wing soft column backdrop
-    const rightGrad = ctx.createLinearGradient(safeBounds.right, cy, safeBounds.right - wingWidth, cy);
-    rightGrad.addColorStop(0, 'rgba(15, 23, 42, 0.40)');
-    rightGrad.addColorStop(1, 'rgba(15, 23, 42, 0.0)');
-    ctx.fillStyle = rightGrad;
-    ctx.fillRect(safeBounds.right - wingWidth, safeBounds.top + 60, wingWidth, h - 120);
-    ctx.restore();
+    // 3. Game Bubble Selection (No dark backdrop boxes - clean floating bubbles over camera feed)
 
     // 4. Directional Pointing Beam & Reticle from Single Active Hand
     if (hovered && pointingHand) {
@@ -592,6 +578,143 @@ export class GameHub {
   }
 
   drawBubbleArtwork(ctx, id, r) {
+    const isHalloween = Boolean(settings.data.halloweenTheme);
+    const isHalloweenGame = isHalloween && (id === 'keepy' || id === 'hats' || id === 'butterflies');
+
+    if (isHalloweenGame) {
+      ctx.save();
+      ctx.translate(0, -r * 0.08);
+      if (id === 'keepy') {
+        // 🎃 Custom Jack-o'-Lantern Hub Icon
+        const pr = r * 0.56;
+        // Green stem
+        ctx.fillStyle = '#15803D';
+        ctx.strokeStyle = '#14532D';
+        ctx.lineWidth = 2.5;
+        ctx.beginPath();
+        ctx.moveTo(-4, -pr * 0.78);
+        ctx.quadraticCurveTo(-2, -pr * 1.12, 6, -pr * 1.10);
+        ctx.lineTo(8, -pr * 0.78);
+        ctx.closePath();
+        ctx.fill();
+        ctx.stroke();
+
+        // Ribbed pumpkin body
+        ctx.fillStyle = '#F97316';
+        ctx.strokeStyle = '#7C2D12';
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.ellipse(-pr * 0.35, 0, pr * 0.58, pr * 0.82, 0, 0, Math.PI * 2);
+        ctx.ellipse(pr * 0.35, 0, pr * 0.58, pr * 0.82, 0, 0, Math.PI * 2);
+        ctx.ellipse(0, 0, pr * 0.52, pr * 0.88, 0, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.stroke();
+
+        // Carved glowing eyes & smile
+        ctx.fillStyle = '#FEF08A';
+        ctx.beginPath();
+        ctx.moveTo(-pr * 0.45, -2); ctx.lineTo(-pr * 0.25, -pr * 0.36); ctx.lineTo(-pr * 0.08, -2);
+        ctx.moveTo(pr * 0.08, -2);  ctx.lineTo(pr * 0.25, -pr * 0.36);  ctx.lineTo(pr * 0.45, -2);
+        ctx.fill();
+
+        ctx.beginPath();
+        ctx.arc(0, pr * 0.12, pr * 0.44, 0.1 * Math.PI, 0.9 * Math.PI);
+        ctx.fill();
+      } else if (id === 'hats') {
+        // 🎭 Custom Halloween Frankenstein & Vampire Mask Hub Icon
+        const mr = r * 0.52;
+        // Side bolts
+        ctx.fillStyle = '#94A3B8';
+        ctx.strokeStyle = '#1E293B';
+        ctx.lineWidth = 2;
+        ctx.fillRect(-mr * 1.15, -4, mr * 2.3, 7);
+        ctx.strokeRect(-mr * 1.15, -4, mr * 2.3, 7);
+
+        // Mask faceplate
+        ctx.fillStyle = '#4ADE80';
+        ctx.strokeStyle = '#14532D';
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.roundRect(-mr * 0.85, -mr * 0.82, mr * 1.7, mr * 1.55, [8, 8, 16, 16]);
+        ctx.fill();
+        ctx.stroke();
+
+        // Jagged hair
+        ctx.fillStyle = '#0F172A';
+        ctx.beginPath();
+        ctx.moveTo(-mr * 0.85, -mr * 0.42);
+        ctx.lineTo(-mr * 0.85, -mr * 0.82);
+        ctx.lineTo(mr * 0.85, -mr * 0.82);
+        ctx.lineTo(mr * 0.85, -mr * 0.42);
+        ctx.lineTo(mr * 0.4, -mr * 0.25);
+        ctx.lineTo(0, -mr * 0.45);
+        ctx.lineTo(-mr * 0.4, -mr * 0.25);
+        ctx.closePath();
+        ctx.fill();
+
+        // Mask eye cutouts
+        ctx.fillStyle = '#FEF08A';
+        ctx.strokeStyle = '#0F172A';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.arc(-mr * 0.36, -mr * 0.05, 6.5, 0, Math.PI * 2);
+        ctx.arc(mr * 0.36, -mr * 0.05, 6.5, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.stroke();
+
+        // Stitched smile
+        ctx.beginPath();
+        ctx.arc(0, mr * 0.22, mr * 0.42, 0.15 * Math.PI, 0.85 * Math.PI);
+        ctx.stroke();
+      } else if (id === 'butterflies') {
+        // 🦇👻 Custom Cute Bat & Silly Ghost Hub Icon
+        const br = r * 0.50;
+        // Cute Ghost on bottom-right
+        ctx.fillStyle = '#FFFFFF';
+        ctx.strokeStyle = '#38BDF8';
+        ctx.lineWidth = 2.5;
+        ctx.beginPath();
+        ctx.arc(br * 0.36, br * 0.15, br * 0.48, Math.PI, 0);
+        ctx.lineTo(br * 0.84, br * 0.72);
+        ctx.lineTo(br * 0.56, br * 0.58);
+        ctx.lineTo(br * 0.36, br * 0.74);
+        ctx.lineTo(br * 0.16, br * 0.58);
+        ctx.lineTo(-br * 0.12, br * 0.72);
+        ctx.closePath();
+        ctx.fill();
+        ctx.stroke();
+        ctx.fillStyle = '#0F172A';
+        ctx.beginPath();
+        ctx.arc(br * 0.22, br * 0.15, 2.8, 0, Math.PI * 2);
+        ctx.arc(br * 0.50, br * 0.15, 2.8, 0, Math.PI * 2);
+        ctx.ellipse(br * 0.36, br * 0.34, 3, 4, 0, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Cute Bat on top-left
+        ctx.fillStyle = '#1E1B4B';
+        ctx.strokeStyle = '#FACC15';
+        ctx.lineWidth = 2.2;
+        ctx.beginPath();
+        ctx.moveTo(-br * 0.25, -br * 0.32);
+        ctx.quadraticCurveTo(-br * 0.85, -br * 0.75, -br * 1.05, -br * 0.22);
+        ctx.quadraticCurveTo(-br * 0.65, -br * 0.05, -br * 0.25, -br * 0.12);
+        ctx.quadraticCurveTo(br * 0.15, -br * 0.05, br * 0.55, -br * 0.22);
+        ctx.quadraticCurveTo(br * 0.35, -br * 0.75, -br * 0.25, -br * 0.32);
+        ctx.fill();
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.arc(-br * 0.25, -br * 0.26, br * 0.24, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = '#FEF08A';
+        ctx.beginPath();
+        ctx.arc(-br * 0.33, -br * 0.28, 2.4, 0, Math.PI * 2);
+        ctx.arc(-br * 0.17, -br * 0.28, 2.4, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      ctx.restore();
+      return;
+    }
+
     const badgeImg = this.badgeImages ? this.badgeImages[id] : null;
     if (badgeImg && badgeImg.complete && badgeImg.naturalWidth > 0) {
       ctx.save();

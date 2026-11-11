@@ -3,14 +3,15 @@
 // Watch out for the Cheeky Monkey peeking & swinging in with monkey chatter!
 import { sound } from './sound.js';
 import { settings } from './settings.js';
+import { ParticlePool, FloatingTextPool } from './particlePool.js';
 
 const HAT_TYPES = [
-  { id: 'crown', name: 'Princess Crown', height: 42, color: '#FACC15' },
-  { id: 'sheriff', name: 'Sheriff Labrador Cap', height: 44, color: '#1E3A8A' },
-  { id: 'fire', name: 'Paw Patrol Fire Helmet', height: 44, color: '#EF4444' },
-  { id: 'party', name: 'Birthday Party Hat', height: 52, color: '#EC4899' },
-  { id: 'chef', name: 'Puffy Chef Hat', height: 48, color: '#F8FAFC' },
-  { id: 'wizard', name: 'Magic Wizard Hat', height: 54, color: '#7C3AED' },
+  { id: 'crown', name: 'Princess Crown', maskName: "Jack-O'-Lantern Mask", height: 42, color: '#FACC15', maskColor: '#F97316' },
+  { id: 'sheriff', name: 'Sheriff Labrador Cap', maskName: 'Frankenstein Mask', height: 44, color: '#1E3A8A', maskColor: '#4ADE80' },
+  { id: 'fire', name: 'Paw Patrol Fire Helmet', maskName: 'Dracula Vampire Mask', height: 44, color: '#EF4444', maskColor: '#A855F7' },
+  { id: 'party', name: 'Birthday Party Hat', maskName: 'Spooky Black Cat Mask', height: 52, color: '#EC4899', maskColor: '#38BDF8' },
+  { id: 'chef', name: 'Puffy Chef Hat', maskName: 'Glowing Skull Mask', height: 48, color: '#F8FAFC', maskColor: '#F8FAFC' },
+  { id: 'wizard', name: 'Magic Wizard Hat', maskName: 'Wicked Witch Mask', height: 54, color: '#7C3AED', maskColor: '#84CC16' },
 ];
 
 const HATS_PER_LEVEL = 5;
@@ -20,8 +21,9 @@ export class HatStackerGame {
     this.fallingHats = [];
     this.stackedHats = [];
     this.tumblingHats = [];
-    this.particles = [];
-    this.floatingTexts = [];
+    this.particlePool = new ParticlePool(48);
+    this.textPool = new FloatingTextPool(16);
+    this._hatCanvases = {};
 
     this.score = 0;
     this.bestScore = settings.data.bestHatStack || 0;
@@ -46,8 +48,8 @@ export class HatStackerGame {
     this.fallingHats = [];
     this.stackedHats = [];
     this.tumblingHats = [];
-    this.particles = [];
-    this.floatingTexts = [];
+    this.particlePool.clear();
+    this.textPool.clear();
     this.bird = null;
     this.monkey = null;
     this.monkeyCooldown = 11.0;
@@ -87,7 +89,13 @@ export class HatStackerGame {
       facingDir: 1,
     };
     sound.playBirdChirp();
-    this.spawnFloatingText(targetX, targetY - 50, '5 HATS! BIRD DELIVERY! 🐦🎵', '#FACC15');
+    const isHw = Boolean(settings.data.halloweenTheme);
+    this.spawnFloatingText(
+      targetX,
+      targetY - 50,
+      isHw ? '5 MASKS! BIRD DELIVERY! 🐦🎃' : '5 HATS! BIRD DELIVERY! 🐦🎵',
+      '#FACC15'
+    );
   }
 
   spawnMonkey(safeBounds) {
@@ -308,10 +316,11 @@ export class HatStackerGame {
             this.stackedHats = [];
             sound.playFloorDrop(false);
             sound.playFailClip(false);
+            const isHw = Boolean(settings.data.halloweenTheme);
             this.spawnFloatingText(
               headAnchor.x,
               headAnchor.y - 60,
-              'OH NO! MONKEY KNOCKED THE HATS! 🐒',
+              isHw ? 'OH NO! MONKEY KNOCKED THE MASKS! 🐒' : 'OH NO! MONKEY KNOCKED THE HATS! 🐒',
               '#FB7185'
             );
           }
@@ -395,11 +404,14 @@ export class HatStackerGame {
         }
 
         sound.playHatCatch(this.stackedHats.length);
-        this.spawnParticles(stackTopX, stackTopY, hat.color);
+        const isHw = Boolean(settings.data.halloweenTheme);
+        const displayColor = isHw && hat.maskColor ? hat.maskColor : hat.color;
+        const displayName = isHw && hat.maskName ? hat.maskName : hat.name;
+        this.spawnParticles(stackTopX, stackTopY, displayColor);
         this.spawnFloatingText(
           stackTopX,
           stackTopY - 40,
-          `${hat.name.toUpperCase()}! (${this.stackedHats.length}/${HATS_PER_LEVEL}) 🎩`,
+          `${displayName.toUpperCase()}! (${this.stackedHats.length}/${HATS_PER_LEVEL}) ${isHw ? '🎭' : '🎩'}`,
           '#FEF08A'
         );
 
@@ -450,44 +462,32 @@ export class HatStackerGame {
       }
     }
 
-    for (let i = this.particles.length - 1; i >= 0; i--) {
-      const p = this.particles[i];
-      p.x += p.vx * dt;
-      p.y += p.vy * dt;
-      p.vy += 300 * dt;
-      p.life -= dt;
-      if (p.life <= 0) this.particles.splice(i, 1);
-    }
-
-    for (let i = this.floatingTexts.length - 1; i >= 0; i--) {
-      const ft = this.floatingTexts[i];
-      ft.y -= 50 * dt;
-      ft.life -= dt;
-      if (ft.life <= 0) this.floatingTexts.splice(i, 1);
-    }
+    // Update zero-allocation pools
+    this.particlePool.update(dt);
+    this.textPool.update(dt);
   }
 
   spawnParticles(x, y, color) {
     const palette = [color, '#FACC15', '#38BDF8', '#4ADE80', '#FFFFFF'];
-    for (let i = 0; i < 12; i++) {
-      if (this.particles.length >= 35) break;
-      const a = (Math.PI * 2 * i) / 12;
+    for (let i = 0; i < 10; i++) {
+      const a = (Math.PI * 2 * i) / 10;
       const spd = 100 + Math.random() * 160;
-      this.particles.push({
+      this.particlePool.spawn(
         x,
         y,
-        vx: Math.cos(a) * spd,
-        vy: Math.sin(a) * spd - 50,
-        r: 5 + Math.random() * 5,
-        color: palette[i % palette.length],
-        life: 0.6,
-        maxLife: 0.6,
-      });
+        Math.cos(a) * spd,
+        Math.sin(a) * spd - 50,
+        5 + Math.random() * 5,
+        palette[i % palette.length],
+        0.6,
+        'circle',
+        300
+      );
     }
   }
 
   spawnFloatingText(x, y, text, color = '#FFFFFF') {
-    this.floatingTexts.push({ x, y, text, color, life: 1.1, maxLife: 1.1 });
+    this.textPool.spawn(x, y, text, color, 1.1, -50);
   }
 
   render(ctx, player, pointer, safeBounds) {
@@ -544,9 +544,19 @@ export class HatStackerGame {
       this.drawMonkey(ctx, this.monkey, sb);
     }
 
-    if (this.particles.length > 0) {
+    const pool = this.particlePool.pool;
+    let hasParticles = false;
+    for (let i = 0; i < this.particlePool.maxSize; i++) {
+      if (pool[i].active) {
+        hasParticles = true;
+        break;
+      }
+    }
+    if (hasParticles) {
       ctx.save();
-      for (const p of this.particles) {
+      for (let i = 0; i < this.particlePool.maxSize; i++) {
+        const p = pool[i];
+        if (!p.active) continue;
         ctx.globalAlpha = Math.max(0, p.life / p.maxLife);
         ctx.fillStyle = p.color;
         ctx.beginPath();
@@ -556,16 +566,28 @@ export class HatStackerGame {
       ctx.restore();
     }
 
-    for (const ft of this.floatingTexts) {
+    const textPool = this.textPool.pool;
+    let hasTexts = false;
+    for (let i = 0; i < this.textPool.maxSize; i++) {
+      if (textPool[i].active) {
+        hasTexts = true;
+        break;
+      }
+    }
+    if (hasTexts) {
       ctx.save();
-      ctx.globalAlpha = Math.max(0, ft.life / ft.maxLife);
       ctx.font = '900 24px system-ui, sans-serif';
       ctx.textAlign = 'center';
       ctx.strokeStyle = '#0F172A';
       ctx.lineWidth = 6;
-      ctx.strokeText(ft.text, ft.x, ft.y);
-      ctx.fillStyle = ft.color;
-      ctx.fillText(ft.text, ft.x, ft.y);
+      for (let i = 0; i < this.textPool.maxSize; i++) {
+        const ft = textPool[i];
+        if (!ft.active) continue;
+        ctx.globalAlpha = Math.max(0, ft.life / ft.maxLife);
+        ctx.strokeText(ft.text, ft.x, ft.y);
+        ctx.fillStyle = ft.color;
+        ctx.fillText(ft.text, ft.x, ft.y);
+      }
       ctx.restore();
     }
   }
@@ -1142,6 +1164,526 @@ export class HatStackerGame {
     ctx.restore();
   }
 
+  _getHatCanvas(id) {
+    if (!this._hatCanvases) this._hatCanvases = {};
+    const isHalloween = Boolean(settings.data.halloweenTheme);
+    const cacheKey = `${id}_${isHalloween ? 'mask' : 'hat'}`;
+    if (this._hatCanvases[cacheKey]) return this._hatCanvases[cacheKey];
+
+    // Pre-render the hat or Halloween mask onto a cached 2x offscreen canvas for blazing-fast 60fps GPU blitting!
+    const c = document.createElement('canvas');
+    c.width = 280;
+    c.height = 280;
+    const offCtx = c.getContext('2d');
+    offCtx.scale(2, 2);
+    offCtx.translate(70, 85);
+    offCtx.lineWidth = 3.5;
+    offCtx.lineJoin = 'round';
+    offCtx.lineCap = 'round';
+    if (isHalloween) {
+      this._renderHalloweenMaskVector(offCtx, id);
+    } else {
+      this._renderHatVector(offCtx, id);
+    }
+    this._hatCanvases[cacheKey] = c;
+    return c;
+  }
+
+  _renderHalloweenMaskVector(ctx, id) {
+    // Wearable Elastic Mask Side Loops (gives every piece an unmistakable costume mask look!)
+    ctx.strokeStyle = '#1E293B';
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.arc(-44, -8, 9, Math.PI * 0.45, Math.PI * 1.55);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.arc(44, -8, 9, -Math.PI * 0.55, Math.PI * 0.55);
+    ctx.stroke();
+
+    ctx.lineWidth = 3.2;
+
+    if (id === 'crown') {
+      // 🎃 Jack-O'-Lantern Costume Mask
+      // Curved green pumpkin stem on top
+      ctx.fillStyle = '#15803D';
+      ctx.strokeStyle = '#14532D';
+      ctx.beginPath();
+      ctx.moveTo(-6, -34);
+      ctx.quadraticCurveTo(-4, -48, 5, -48);
+      ctx.lineTo(9, -43);
+      ctx.quadraticCurveTo(3, -40, 6, -34);
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
+
+      // Ribbed Orange Pumpkin Mask Faceplate
+      const pGrad = ctx.createLinearGradient(0, -36, 0, 16);
+      pGrad.addColorStop(0, '#FB923C');
+      pGrad.addColorStop(0.5, '#F97316');
+      pGrad.addColorStop(1, '#EA580C');
+      ctx.fillStyle = pGrad;
+      ctx.strokeStyle = '#7C2D12';
+      ctx.beginPath();
+      ctx.ellipse(-22, -9, 24, 24, -0.05, 0, Math.PI * 2);
+      ctx.ellipse(22, -9, 24, 24, 0.05, 0, Math.PI * 2);
+      ctx.ellipse(0, -9, 28, 26, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+
+      // Carved Glowing Yellow Eye Cutouts
+      ctx.fillStyle = '#FEF08A';
+      ctx.strokeStyle = '#78350F';
+      ctx.lineWidth = 2.2;
+      [-17, 17].forEach((ex) => {
+        ctx.beginPath();
+        ctx.moveTo(ex - 10, -10);
+        ctx.lineTo(ex, -25);
+        ctx.lineTo(ex + 10, -10);
+        ctx.closePath();
+        ctx.fill();
+        ctx.stroke();
+
+        // Dark eye pupil hole inside mask cutout
+        ctx.fillStyle = '#0F172A';
+        ctx.beginPath();
+        ctx.arc(ex, -14, 3.2, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = '#FEF08A';
+      });
+
+      // Triangle nose cutout
+      ctx.beginPath();
+      ctx.moveTo(-5, -4);
+      ctx.lineTo(0, -11);
+      ctx.lineTo(5, -4);
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
+
+      // Toothy Carved Jack-O'-Lantern Grin
+      ctx.beginPath();
+      ctx.moveTo(-26, 0);
+      ctx.quadraticCurveTo(0, 5, 26, 0);
+      ctx.quadraticCurveTo(18, 14, 0, 14);
+      ctx.quadraticCurveTo(-18, 14, -26, 0);
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
+
+      // Blocky Pumpkin Teeth
+      ctx.fillStyle = '#F97316';
+      ctx.fillRect(-12, 1, 7, 5);
+      ctx.fillRect(5, 1, 7, 5);
+    } else if (id === 'sheriff') {
+      // 🧟 Frankenstein Monster Mask with Side Bolts & Stitch Grin
+      // Metallic Silver Neck/Temple Bolts on sides
+      ctx.fillStyle = '#94A3B8';
+      ctx.strokeStyle = '#334155';
+      ctx.lineWidth = 2.5;
+      [-48, 38].forEach((bx, idx) => {
+        ctx.beginPath();
+        ctx.roundRect(bx, -6, 10, 8, 2);
+        ctx.fill();
+        ctx.stroke();
+        const capX = idx === 0 ? -52 : 46;
+        ctx.beginPath();
+        ctx.roundRect(capX, -9, 5, 14, 2);
+        ctx.fill();
+        ctx.stroke();
+      });
+
+      // Flat-topped Green Monster Face Mask
+      const fGrad = ctx.createLinearGradient(0, -40, 0, 16);
+      fGrad.addColorStop(0, '#4ADE80');
+      fGrad.addColorStop(1, '#16A34A');
+      ctx.fillStyle = fGrad;
+      ctx.strokeStyle = '#14532D';
+      ctx.lineWidth = 3.2;
+      ctx.beginPath();
+      ctx.roundRect(-38, -38, 76, 54, [8, 8, 20, 20]);
+      ctx.fill();
+      ctx.stroke();
+
+      // Jagged Black Monster Hair across flat top
+      ctx.fillStyle = '#0F172A';
+      ctx.beginPath();
+      ctx.moveTo(-38, -30);
+      ctx.lineTo(-38, -38);
+      ctx.lineTo(38, -38);
+      ctx.lineTo(38, -30);
+      ctx.lineTo(26, -22);
+      ctx.lineTo(14, -30);
+      ctx.lineTo(0, -21);
+      ctx.lineTo(-14, -30);
+      ctx.lineTo(-26, -22);
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
+
+      // Forehead stitch scar
+      ctx.strokeStyle = '#14532D';
+      ctx.lineWidth = 2.2;
+      ctx.beginPath();
+      ctx.moveTo(-24, -18);
+      ctx.lineTo(-8, -20);
+      ctx.moveTo(-20, -22); ctx.lineTo(-20, -15);
+      ctx.moveTo(-13, -23); ctx.lineTo(-13, -16);
+      ctx.stroke();
+
+      // Big Goofy Cartoon Eyes & Heavy Brow
+      [-16, 16].forEach((ex) => {
+        ctx.fillStyle = '#FFFFFF';
+        ctx.strokeStyle = '#0F172A';
+        ctx.lineWidth = 2.5;
+        ctx.beginPath();
+        ctx.arc(ex, -7, 9, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.stroke();
+
+        ctx.fillStyle = '#0F172A';
+        ctx.beginPath();
+        ctx.arc(ex, -7, 4.2, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = '#FFFFFF';
+        ctx.beginPath();
+        ctx.arc(ex - 1.5, -9, 1.8, 0, Math.PI * 2);
+        ctx.fill();
+      });
+
+      // Heavy unibrow ridge
+      ctx.strokeStyle = '#0F172A';
+      ctx.lineWidth = 4;
+      ctx.beginPath();
+      ctx.moveTo(-28, -14);
+      ctx.lineTo(28, -14);
+      ctx.stroke();
+
+      // Goofy Stitched Smile
+      ctx.lineWidth = 2.5;
+      ctx.beginPath();
+      ctx.arc(0, 2, 18, 0.15 * Math.PI, 0.85 * Math.PI);
+      ctx.stroke();
+    } else if (id === 'fire') {
+      // 🧛 Count Dracula Vampire Mask with High Crimson Collar & Fangs
+      // High Popped Crimson & Black Vampire Collar behind mask
+      ctx.fillStyle = '#DC2626';
+      ctx.strokeStyle = '#0F172A';
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.moveTo(-36, 10);
+      ctx.lineTo(-54, -26);
+      ctx.lineTo(-18, -16);
+      ctx.lineTo(18, -16);
+      ctx.lineTo(54, -26);
+      ctx.lineTo(36, 10);
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
+
+      // Pale Lavender/Porcelain Vampire Mask Face
+      ctx.fillStyle = '#F3E8FF';
+      ctx.strokeStyle = '#3B0764';
+      ctx.lineWidth = 3.2;
+      ctx.beginPath();
+      ctx.ellipse(0, -8, 38, 25, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+
+      // Glossy Black Widow's Peak Hair on Top
+      ctx.fillStyle = '#0F172A';
+      ctx.beginPath();
+      ctx.ellipse(0, -14, 38, 21, 0, Math.PI * 1.05, Math.PI * 1.95);
+      ctx.lineTo(18, -24);
+      ctx.lineTo(0, -15);
+      ctx.lineTo(-18, -24);
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
+
+      // Expressive Vampire Eyes & Arched Brows
+      [-15, 15].forEach((ex, i) => {
+        ctx.fillStyle = '#FEF08A';
+        ctx.strokeStyle = '#0F172A';
+        ctx.lineWidth = 2.4;
+        ctx.beginPath();
+        ctx.ellipse(ex, -8, 8.5, 7, 0, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.stroke();
+
+        ctx.fillStyle = '#DC2626';
+        ctx.beginPath();
+        ctx.arc(ex, -8, 4, 0, Math.PI * 2);
+        ctx.fill();
+
+        ctx.fillStyle = '#FFFFFF';
+        ctx.beginPath();
+        ctx.arc(ex - 1.5, -10, 1.5, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Dramatic V-slanted eyebrows
+        ctx.strokeStyle = '#0F172A';
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.moveTo(ex - 8, i === 0 ? -18 : -14);
+        ctx.lineTo(ex + 8, i === 0 ? -14 : -18);
+        ctx.stroke();
+      });
+
+      // Vampire Smile & Two Cute White Fangs!
+      ctx.strokeStyle = '#3B0764';
+      ctx.lineWidth = 2.6;
+      ctx.beginPath();
+      ctx.arc(0, -2, 16, 0.15 * Math.PI, 0.85 * Math.PI);
+      ctx.stroke();
+
+      ctx.fillStyle = '#FFFFFF';
+      ctx.strokeStyle = '#3B0764';
+      ctx.lineWidth = 2;
+      [-9, 9].forEach((fx) => {
+        ctx.beginPath();
+        ctx.moveTo(fx - 4, 4);
+        ctx.lineTo(fx, 14);
+        ctx.lineTo(fx + 4, 4);
+        ctx.closePath();
+        ctx.fill();
+        ctx.stroke();
+      });
+    } else if (id === 'party') {
+      // 🐈‍⬛ Spooky Black Cat Mask with Pointy Ears, Glowing Green Eyes & Whiskers
+      // Pointy Black Cat Ears on top
+      ctx.fillStyle = '#0F172A';
+      ctx.strokeStyle = '#334155';
+      ctx.lineWidth = 3;
+      [-26, 26].forEach((ex, idx) => {
+        const dir = idx === 0 ? -1 : 1;
+        ctx.beginPath();
+        ctx.moveTo(ex - 12, -20);
+        ctx.lineTo(ex + dir * 6, -48);
+        ctx.lineTo(ex + 12, -20);
+        ctx.closePath();
+        ctx.fill();
+        ctx.stroke();
+
+        // Pink Inner Ear Triangle
+        ctx.fillStyle = '#F472B6';
+        ctx.beginPath();
+        ctx.moveTo(ex - 6, -22);
+        ctx.lineTo(ex + dir * 4, -40);
+        ctx.lineTo(ex + 6, -22);
+        ctx.closePath();
+        ctx.fill();
+        ctx.fillStyle = '#0F172A';
+      });
+
+      // Sleek Black Cat Face Mask Body
+      ctx.fillStyle = '#0F172A';
+      ctx.strokeStyle = '#38BDF8';
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.ellipse(0, -6, 42, 24, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+
+      // Glowing Neon Green Cat Eyes
+      [-16, 16].forEach((ex, idx) => {
+        const tilt = idx === 0 ? 0.18 : -0.18;
+        ctx.fillStyle = '#4ADE80';
+        ctx.strokeStyle = '#FFFFFF';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.ellipse(ex, -10, 10, 7.5, tilt, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.stroke();
+
+        // Vertical Cat Slit Pupil
+        ctx.fillStyle = '#0F172A';
+        ctx.beginPath();
+        ctx.ellipse(ex, -10, 2.8, 6, 0, 0, Math.PI * 2);
+        ctx.fill();
+
+        ctx.fillStyle = '#FFFFFF';
+        ctx.beginPath();
+        ctx.arc(ex - 3, -12, 1.8, 0, Math.PI * 2);
+        ctx.fill();
+      });
+
+      // Cute Pink Triangle Nose & Cat ":3" Mouth
+      ctx.fillStyle = '#F472B6';
+      ctx.beginPath();
+      ctx.moveTo(-6, -1);
+      ctx.lineTo(6, -1);
+      ctx.lineTo(0, 5);
+      ctx.closePath();
+      ctx.fill();
+
+      ctx.strokeStyle = '#F472B6';
+      ctx.lineWidth = 2.4;
+      ctx.beginPath();
+      ctx.arc(-5, 6, 5, 0, Math.PI);
+      ctx.arc(5, 6, 5, 0, Math.PI);
+      ctx.stroke();
+
+      // White Cat Whiskers
+      ctx.strokeStyle = '#FFFFFF';
+      ctx.lineWidth = 2.2;
+      [-1, 1].forEach((dir) => {
+        ctx.beginPath();
+        ctx.moveTo(dir * 20, -2); ctx.lineTo(dir * 38, -5);
+        ctx.moveTo(dir * 20, 3);  ctx.lineTo(dir * 39, 3);
+        ctx.moveTo(dir * 20, 8);  ctx.lineTo(dir * 37, 11);
+        ctx.stroke();
+      });
+    } else if (id === 'chef') {
+      // 💀 Festive Glowing Skull / Skeleton Mask
+      // Rounded Ivory Skull Mask Dome & Jaw
+      ctx.fillStyle = '#FFFFFF';
+      ctx.strokeStyle = '#334155';
+      ctx.lineWidth = 3.2;
+      ctx.beginPath();
+      ctx.ellipse(0, -14, 38, 22, 0, 0, Math.PI * 2);
+      ctx.roundRect(-24, -4, 48, 20, [4, 4, 12, 12]);
+      ctx.fill();
+      ctx.stroke();
+
+      // Re-fill interior to merge skull dome and jaw seamlessly
+      ctx.beginPath();
+      ctx.ellipse(0, -14, 36, 20, 0, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Festive Orange & Purple Forehead Gem Accents
+      ctx.fillStyle = '#F97316';
+      ctx.beginPath();
+      ctx.arc(0, -27, 5, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = '#A855F7';
+      ctx.beginPath();
+      ctx.arc(-11, -26, 3.2, 0, Math.PI * 2);
+      ctx.arc(11, -26, 3.2, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Big Friendly Dark Eye Sockets with Glowing Cyan/Gold Twinkles
+      [-15, 15].forEach((ex) => {
+        ctx.fillStyle = '#0F172A';
+        ctx.strokeStyle = '#38BDF8';
+        ctx.lineWidth = 2.2;
+        ctx.beginPath();
+        ctx.arc(ex, -12, 9.5, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.stroke();
+
+        ctx.fillStyle = '#FACC15';
+        ctx.beginPath();
+        ctx.arc(ex, -12, 3.5, 0, Math.PI * 2);
+        ctx.fill();
+      });
+
+      // Cute Nose Cavity
+      ctx.fillStyle = '#0F172A';
+      ctx.beginPath();
+      ctx.moveTo(0, -7);
+      ctx.lineTo(-4.5, 0);
+      ctx.lineTo(4.5, 0);
+      ctx.closePath();
+      ctx.fill();
+
+      // Grinning Skeleton Teeth Row
+      ctx.strokeStyle = '#0F172A';
+      ctx.lineWidth = 2.6;
+      ctx.beginPath();
+      ctx.moveTo(-18, 7);
+      ctx.lineTo(18, 7);
+      for (let tx = -12; tx <= 12; tx += 6) {
+        ctx.moveTo(tx, 2);
+        ctx.lineTo(tx, 12);
+      }
+      ctx.stroke();
+    } else {
+      // 🧙‍♀️ Wicked Witch Mask with Mini Witch Hat Brim & Green Face
+      // Green Witch Mask Face
+      const wGrad = ctx.createLinearGradient(0, -30, 0, 16);
+      wGrad.addColorStop(0, '#A3E635');
+      wGrad.addColorStop(1, '#65A30D');
+      ctx.fillStyle = wGrad;
+      ctx.strokeStyle = '#365314';
+      ctx.lineWidth = 3.2;
+      ctx.beginPath();
+      ctx.ellipse(0, -5, 38, 22, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+
+      // Mini Crooked Purple Witch Hat perched on top of mask!
+      ctx.fillStyle = '#581C87';
+      ctx.strokeStyle = '#3B0764';
+      ctx.lineWidth = 2.8;
+      ctx.beginPath();
+      ctx.moveTo(-26, -21);
+      ctx.quadraticCurveTo(-8, -44, 10, -50);
+      ctx.quadraticCurveTo(18, -50, 16, -42);
+      ctx.quadraticCurveTo(10, -34, 26, -21);
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
+
+      // Hatband & Gold Buckle
+      ctx.fillStyle = '#F97316';
+      ctx.fillRect(-23, -27, 46, 5);
+      ctx.fillStyle = '#FACC15';
+      ctx.fillRect(-5, -28, 10, 7);
+
+      // Witch Hat Brim
+      ctx.fillStyle = '#6B21A8';
+      ctx.beginPath();
+      ctx.ellipse(0, -20, 42, 7, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+
+      // Expressive Witch Eyes with Purple Eyeshadow
+      [-15, 15].forEach((ex) => {
+        ctx.fillStyle = '#A855F7';
+        ctx.beginPath();
+        ctx.arc(ex, -9, 9.5, Math.PI, 0);
+        ctx.fill();
+
+        ctx.fillStyle = '#FFFFFF';
+        ctx.strokeStyle = '#0F172A';
+        ctx.lineWidth = 2.2;
+        ctx.beginPath();
+        ctx.arc(ex, -7, 7.5, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.stroke();
+
+        ctx.fillStyle = '#0F172A';
+        ctx.beginPath();
+        ctx.arc(ex, -7, 3.8, 0, Math.PI * 2);
+        ctx.fill();
+      });
+
+      // Cute Curved Witch Nose with Pink Wart
+      ctx.fillStyle = '#84CC16';
+      ctx.strokeStyle = '#365314';
+      ctx.lineWidth = 2.2;
+      ctx.beginPath();
+      ctx.moveTo(-3, -6);
+      ctx.quadraticCurveTo(8, 0, 2, 5);
+      ctx.lineTo(-4, 3);
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
+
+      ctx.fillStyle = '#F472B6';
+      ctx.beginPath();
+      ctx.arc(3, 1, 2.2, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Cheerful Cackling Smile
+      ctx.strokeStyle = '#365314';
+      ctx.lineWidth = 2.6;
+      ctx.beginPath();
+      ctx.arc(0, 3, 14, 0.15 * Math.PI, 0.85 * Math.PI);
+      ctx.stroke();
+    }
+  }
+
   drawHatGraphic(ctx, id, x, y, scaleX = 1.0, scaleY = 1.0, angle = 0) {
     if (arguments.length <= 6) {
       // When called with 5 or 6 arguments (ctx, id, x, y, scale, [angle]):
@@ -1150,14 +1692,18 @@ export class HatStackerGame {
       scaleY = scaleX;
     }
 
+    const hatCanvas = this._getHatCanvas(id);
+    if (!hatCanvas) return;
+
     ctx.save();
     ctx.translate(x, y);
     ctx.rotate(angle);
     ctx.scale(scaleX, scaleY);
-    ctx.lineWidth = 3.5;
-    ctx.lineJoin = 'round';
-    ctx.lineCap = 'round';
+    ctx.drawImage(hatCanvas, -70, -85, 140, 140);
+    ctx.restore();
+  }
 
+  _renderHatVector(ctx, id) {
     if (id === 'crown') {
       // 👑 Princess Golden Crown: Multi-faceted gold with cut jewels and velvet trim
       // Base velvet band
@@ -1588,7 +2134,5 @@ export class HatStackerGame {
         ctx.fill();
       });
     }
-
-    ctx.restore();
   }
 }

@@ -130,7 +130,7 @@ export class SillyPosesGame {
   _playTapSound() {
     try {
       if (typeof sound.playPop === 'function') {
-        this._playTapSound();
+        sound.playPop();
       } else if (typeof sound.playBubblePop === 'function') {
         sound.playBubblePop(false);
       }
@@ -149,13 +149,22 @@ export class SillyPosesGame {
     }
     const idx = this.poseDeck.pop();
     this.currentPoseIdx = idx;
-    this.currentPoseLoaded = false;
-    const img = new Image();
-    img.onload = () => {
+
+    if (!this._poseImgCache) this._poseImgCache = new Map();
+    let img = this._poseImgCache.get(idx);
+    if (img && img.complete && img.naturalWidth > 0) {
+      this.currentPoseImg = img;
       this.currentPoseLoaded = true;
-    };
-    img.src = `/poses/${idx}.png`;
-    this.currentPoseImg = img;
+    } else {
+      this.currentPoseLoaded = false;
+      img = new Image();
+      img.onload = () => {
+        this.currentPoseLoaded = true;
+      };
+      img.src = `/poses/${idx}.png`;
+      this.currentPoseImg = img;
+      this._poseImgCache.set(idx, img);
+    }
   }
 
   reset() {
